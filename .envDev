@@ -1,0 +1,8 @@
+# Configuración de la Base de Datos
+DB_USER=
+DB_PASSWORD=
+DB_NAME=
+DB_PORT=5432
+DB_HOST=
+# Configuración de la Aplicación
+APP_PORT=8000
