@@ -30,6 +30,9 @@ services:
       - DB_PORT=5432
       - DB_HOST=db
       - APP_PORT=${APP_PORT}
+    volumes:
+      - ./app:/code/app
+    command: sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT} --reload"  
     depends_on:
       db:
         condition: service_healthy

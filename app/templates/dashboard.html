@@ -22,7 +22,7 @@
                 <div class="card bg-primary text-white h-100 shadow-sm">
                     <div class="card-body text-center">
                         <h6>Total Bruto Vendido</h6>
-                        <h2>${{ total_bruto }}</h2>
+                        <h2>GTQ{{ total_bruto }}</h2>
                     </div>
                 </div>
             </div>
@@ -30,7 +30,7 @@
                 <div class="card bg-warning text-dark h-100 shadow-sm">
                     <div class="card-body text-center">
                         <h6>Comisiones de Vendedores</h6>
-                        <h2>${{ total_comisiones }}</h2>
+                        <h2>GTQ{{ total_comisiones }}</h2>
                     </div>
                 </div>
             </div>
@@ -38,7 +38,7 @@
                 <div class="card bg-success text-white h-100 shadow-sm">
                     <div class="card-body text-center">
                         <h6>Utilidad Neta Empresa</h6>
-                        <h2>${{ total_utilidad }}</h2>
+                        <h2>GTQ{{ total_utilidad }}</h2>
                     </div>
                 </div>
             </div>
@@ -74,7 +74,7 @@
                                 <td><span class="badge bg-secondary">{{ v.talla }}</span></td>
                                 <td>${{ v.base }}</td>
                                 <td class="text-primary fw-bold">${{ v.vendido }}</td>
-                                <td class="text-danger">${{ v.comision }}</td>
+                                <td class="text-danger">GTQ{{ v.comision }}</td>
                                 <td class="text-success fw-bold">${{ v.utilidad }}</td>
                             </tr>
                             {% else %}
