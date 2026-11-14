@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registrar ventas</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Sistema Ventas (SOLID)</a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="/">Dashboard</a>
+                <a class="nav-link active" href="/ventas">Registrar ventas</a>
+                {% if es_admin %}<a class="nav-link" href="/formularios">Administración y Catálogos</a>{% endif %}
+            </div>
+            <div class="d-flex align-items-center gap-3 text-white">
+                <span>{{ usuario["username"] }} · {{ "Administrador" if es_admin else "Vendedor" }}</span>
+                <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
+            </div>
+        </div>
+    </nav>
+    <main class="container mb-5">
+        <div class="row justify-content-center">
+            <div class="col-12 col-lg-8">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">Ingresar nueva venta</h5>
+                    </div>
+                    <div class="card-body">
+                        <form action="/ventas/registrar" method="POST">
+                            {% if es_admin %}
+                            <div class="mb-3">
+                                <label class="form-label">Seleccionar vendedor</label>
+                                <select name="vendedor_id" class="form-select" required>
+                                    {% for v in vendedores %}
+                                    <option value="{{ v[0] }}">{{ v[2] }} - {{ v[1] }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            {% else %}
+                            <div class="alert alert-info">Vendedor: {{ vendedores[0][1] }} (código {{ vendedores[0][2] }})</div>
+                            {% endif %}
+                            <div class="mb-3">
+                                <label for="producto_busqueda" class="form-label">Buscar producto</label>
+                                <input type="search" id="producto_busqueda" class="form-control mb-2"
+                                       placeholder="Buscar por empresa, código o talla..." autocomplete="off">
+                                <label for="producto_select" class="form-label">Seleccionar producto</label>
+                                <select id="producto_select" name="base_price_id" class="form-select" required>
+                                    {% for p in productos %}
+                                    <option value="{{ p[0] }}"
+                                            data-base="{{ p[4] }}"
+                                            data-discount="{{ p[5] }}"
+                                            data-suggested="{{ p[6] }}"
+                                            data-start="{{ p[7] }}"
+                                            data-end="{{ p[8] }}">
+                                        {{ p[1] }} {{ p[2] }} {{ p[3] }}{% if es_admin %} [Costo: GTQ {{ p[4] }} · Descuento: GTQ {{ p[5] }}]{% endif %}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <small id="producto_busqueda_estado" class="form-text text-muted" aria-live="polite"></small>
+                            </div>
+                            <div class="row g-3 mb-3">
+                                <div class="col-12 col-md-6">
+                                    <label for="numero_vendido" class="form-label">Número vendido</label>
+                                    <input type="number" min="1" step="1" name="numero_vendido"
+                                           id="numero_vendido" class="form-control" required>
+                                    <small id="rango_numero" class="form-text text-muted"></small>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label for="precio_vendido" class="form-label">Precio vendido (GTQ)</label>
+                                    <input type="number" min="0.01" step="0.01" name="precio_vendido"
+                                           id="precio_vendido" class="form-control" placeholder="Monto cobrado" required>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Comisión vendedor</label>
+                                    <select name="porcentaje_ganancia" class="form-select" required>
+                                        <option value="5">5</option>
+                                        <option value="10">10</option>
+                                        <option value="15">15</option>
+                                        <option value="20">20</option>
+                                    </select>
+                                </div>
+                            </div>
+                            {% if es_admin %}
+                            <div class="p-3 bg-light rounded mb-3">
+                                <small class="text-muted d-block mb-1">Guía de precios sugeridos comerciales:</small>
+                                <div class="d-flex justify-content-between flex-wrap gap-2 text-dark font-monospace">
+                                    <span id="sug_NA">Precio sugerido: GTQ 0.00</span>
+                                    <span id="sug_20">20%: GTQ 0.00</span>
+                                    <span id="sug_25">25%: GTQ 0.00</span>
+                                </div>
+                            </div>
+                            {% endif %}
+                            <button type="submit" class="btn btn-primary w-100 py-2">Registrar venta</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    <script>
+        const productoSelect = document.getElementById("producto_select");
+        const productoBusqueda = document.getElementById("producto_busqueda");
+        const productoBusquedaEstado = document.getElementById("producto_busqueda_estado");
+        const numeroVendido = document.getElementById("numero_vendido");
+        const rangoNumero = document.getElementById("rango_numero");
+        const opcionesProducto = Array.from(productoSelect.options);
+        let productoSeleccionado = productoSelect.value;
+
+        productoBusqueda.addEventListener("input", function () {
+            const termino = this.value.trim().toLocaleLowerCase();
+            const opcionesFiltradas = opcionesProducto.filter(opcion =>
+                opcion.textContent.toLocaleLowerCase().includes(termino)
+            );
+            productoSelect.replaceChildren(...opcionesFiltradas);
+            productoSelect.value = opcionesFiltradas.some(
+                opcion => opcion.value === productoSeleccionado
+            ) ? productoSeleccionado : "";
+
+            if (opcionesFiltradas.length === 0) {
+                const opcionVacia = document.createElement("option");
+                opcionVacia.textContent = "No se encontraron productos";
+                opcionVacia.disabled = true;
+                opcionVacia.selected = true;
+                productoSelect.append(opcionVacia);
+                productoSelect.value = "";
+                productoBusquedaEstado.textContent = "No hay productos que coincidan con la búsqueda.";
+            } else {
+                productoBusquedaEstado.textContent = termino
+                    ? `${opcionesFiltradas.length} producto(s) encontrado(s).`
+                    : "";
+            }
+            actualizarRangoNumero();
+            calcularSugeridos();
+        });
+
+        productoSelect.addEventListener("change", function () {
+            productoSeleccionado = this.value;
+            actualizarRangoNumero();
+            calcularSugeridos();
+        });
+
+        function actualizarRangoNumero() {
+            const option = productoSelect.options[productoSelect.selectedIndex];
+            const inicio = option ? option.getAttribute("data-start") : null;
+            const fin = option ? option.getAttribute("data-end") : null;
+            if (!inicio || !fin) {
+                numeroVendido.removeAttribute("max");
+                numeroVendido.removeAttribute("min");
+                numeroVendido.value = "";
+                rangoNumero.textContent = "";
+                return;
+            }
+            numeroVendido.min = inicio;
+            numeroVendido.max = fin;
+            if (!numeroVendido.value || Number(numeroVendido.value) < Number(inicio)
+                || Number(numeroVendido.value) > Number(fin)) {
+                numeroVendido.value = inicio;
+            }
+            rangoNumero.textContent = `Ingrese un número entre ${inicio} y ${fin}.`;
+        }
+
+        function calcularSugeridos() {
+            const option = productoSelect.options[productoSelect.selectedIndex];
+            const base = option ? parseFloat(option.getAttribute("data-base")) || 0 : 0;
+            const suggested = option ? parseFloat(option.getAttribute("data-suggested")) || 0 : 0;
+            const sugerencia = document.getElementById("sug_NA");
+            if (sugerencia) {
+                sugerencia.textContent = "Precio sugerido: GTQ " + suggested.toFixed(2);
+                document.getElementById("sug_20").textContent =
+                    "20%: GTQ " + (base * 1.20).toFixed(2);
+                document.getElementById("sug_25").textContent =
+                    "25%: GTQ " + (base * 1.25).toFixed(2);
+            }
+        }
+
+        actualizarRangoNumero();
+        calcularSugeridos();
+    </script>
+</body>
+</html>

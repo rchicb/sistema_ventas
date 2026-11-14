@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import RedirectResponse,HTMLResponse
@@ -148,6 +149,96 @@ def dashboard(
 @router.get("/formularios")
 def mostrar_formularios(
     request: Request,
+    marca_filtro: str = "",
+    codigo_filtro: str = "",
+    base_repo: BaseRepository = Depends(get_base_repo),
+    usuario=Depends(administrador_actual),
+):
+    marca_filtro = marca_filtro.strip()
+    marca_filtro_id = None
+    if marca_filtro:
+        try:
+            marca_filtro_id = int(marca_filtro)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="La marca seleccionada no es válida.")
+    codigo_filtro = codigo_filtro.strip()
+    productos_catalogo = []
+    filtros_catalogo_aplicados = bool(marca_filtro_id or codigo_filtro)
+    if filtros_catalogo_aplicados:
+        condiciones = []
+        parametros = []
+        if marca_filtro_id:
+            condiciones.append("c.id = %s")
+            parametros.append(marca_filtro_id)
+        if codigo_filtro:
+            condiciones.append("p.code ILIKE %s")
+            parametros.append(f"%{codigo_filtro}%")
+        productos_catalogo = base_repo.execute_query(
+            f"""
+            SELECT bp.id, p.id, c.id, c.name, p.code, bp.size_label,
+                   s.start_number, s.end_number, bp.cost_without_discount,
+                   bp.cost_with_discount, bp.sale_price_suggested, bp.state_id
+            FROM products p
+            JOIN companies c ON c.id = p.company_id
+            JOIN base_price bp ON bp.product_id = p.id
+            JOIN sizes s ON bp.size_label = s.label
+            WHERE {" AND ".join(condiciones)}
+            ORDER BY c.name, p.code, bp.size_label, bp.id
+            """,
+            tuple(parametros),
+            fetch=True,
+        ) or []
+    tallas = base_repo.execute_query(
+        """
+        SELECT label, start_number || ' - ' || end_number
+        FROM sizes
+        ORDER BY label
+        """,
+        fetch=True
+    ) or []
+    estados = [(1, "Activo"), (2, "Inactivo")]
+    empresas = base_repo.execute_query(
+        "SELECT id, name FROM companies WHERE state_id = 1 ORDER BY name",
+        fetch=True,
+    ) or []
+    empresas_catalogo = base_repo.execute_query(
+        "SELECT id, name FROM companies ORDER BY name",
+        fetch=True,
+    ) or []
+    tallas_activas = base_repo.execute_query(
+        """
+        SELECT label, start_number || ' - ' || end_number
+        FROM sizes
+        WHERE state_id = 1
+        ORDER BY label
+        """,
+        fetch=True,
+    ) or []
+    usuarios = UsuarioRepository().listar_usuarios() or []
+    vendedores_disponibles = UsuarioRepository().listar_vendedores() or []
+
+    # Usamos .render() directo para saltarnos el middleware conflictivo de Starlette
+    html_content = templates.env.get_template("formularios.html").render(
+        request=request,
+        productos_catalogo=productos_catalogo,
+        marca_filtro=marca_filtro_id,
+        codigo_filtro=codigo_filtro,
+        filtros_catalogo_aplicados=filtros_catalogo_aplicados,
+        tallas=tallas_activas,
+        tallas_catalogo=tallas,
+        estados=estados,
+        empresas=empresas,
+        empresas_catalogo=empresas_catalogo,
+        es_admin=True,
+        usuario=usuario,
+        usuarios=usuarios,
+        vendedores_disponibles=vendedores_disponibles,
+    )
+    return HTMLResponse(content=html_content)
+
+@router.get("/ventas")
+def mostrar_ventas(
+    request: Request,
     base_repo: BaseRepository = Depends(get_base_repo),
     usuario=Depends(usuario_actual),
 ):
@@ -165,55 +256,29 @@ def mostrar_formularios(
         ) or []
         if not vendedores:
             raise HTTPException(status_code=403, detail="El vendedor asociado está inactivo.")
+
     productos = base_repo.execute_query(
         """
-        SELECT bp.id, c.name, p.code, ' [' || s.start_number || ' - ' || s.end_number|| ' ]', 
-        bp.cost_without_discount, bp.cost_with_discount, bp.sale_price_suggested,
-        s.start_number, s.end_number
+        SELECT bp.id, c.name, p.code,
+               ' [' || s.start_number || ' - ' || s.end_number || ' ]',
+               bp.cost_without_discount, bp.cost_with_discount,
+               bp.sale_price_suggested, s.start_number, s.end_number
         FROM products p
         JOIN companies c ON c.id = p.company_id
         JOIN base_price bp ON bp.product_id = p.id
         JOIN sizes s ON bp.size_label = s.label
-        WHERE bp.state_id = 1 AND p.state_id = 1 AND c.state_id = 1 AND s.state_id = 1
+        WHERE bp.state_id = 1 AND p.state_id = 1
+          AND c.state_id = 1 AND s.state_id = 1
         ORDER BY c.name, p.code, bp.size_label
         """,
-        fetch=True
-    )
-    tallas = base_repo.execute_query(
-        """
-        SELECT label, start_number || ' - ' || end_number
-        FROM sizes
-        WHERE state_id = 1
-        ORDER BY label
-        """,
-        fetch=True
-    )
-    estados = [(1, "Activo"), (2, "Inactivo")]
-    empresas = []
-    tallas = tallas or []
-    if es_admin:
-        empresas = base_repo.execute_query(
-            "SELECT id, name FROM companies WHERE state_id = 1 ORDER BY name",
-            fetch=True,
-        ) or []
-        usuarios = UsuarioRepository().listar_usuarios() or []
-        vendedores_disponibles = UsuarioRepository().listar_vendedores() or []
-    else:
-        usuarios = []
-        vendedores_disponibles = []
-    
-    # Usamos .render() directo para saltarnos el middleware conflictivo de Starlette
-    html_content = templates.env.get_template("formularios.html").render(
-        request=request, 
-        vendedores=vendedores, 
-        productos=productos, 
-        tallas=tallas,
-        estados=estados,
-        empresas=empresas,
+        fetch=True,
+    ) or []
+    html_content = templates.env.get_template("ventas.html").render(
+        request=request,
+        vendedores=vendedores,
+        productos=productos,
         es_admin=es_admin,
         usuario=usuario,
-        usuarios=usuarios,
-        vendedores_disponibles=vendedores_disponibles,
     )
     return HTMLResponse(content=html_content)
 
@@ -308,6 +373,8 @@ def agregar_producto(
     codigo: str = Form(...),
     talla_letra: str = Form(...),
     precio_base: float = Form(..., gt=0),
+    precio_descuento: float = Form(..., gt=0),
+    precio_sugerido: float = Form(..., gt=0),
     estado_id: int = Form(...),
     empresa_id: int = Form(None),
     nueva_empresa: str = Form(""),
@@ -374,9 +441,111 @@ def agregar_producto(
                       sale_price_suggested = EXCLUDED.sale_price_suggested,
                       state_id = EXCLUDED.state_id
         """,
-        (product_id, talla_letra, precio_base, precio_base, precio_base, estado_id),
+        (
+            product_id, talla_letra.upper(), precio_base, precio_descuento,
+            precio_sugerido, estado_id
+        ),
     )
     return RedirectResponse(url="/formularios", status_code=303)
+
+@router.post("/productos/modificar")
+def modificar_producto(
+    precio_id: int = Form(..., ge=1),
+    producto_id: int = Form(..., ge=1),
+    empresa_id: int = Form(..., ge=1),
+    codigo: str = Form(..., min_length=1, max_length=50),
+    marca_filtro: str = Form(""),
+    codigo_filtro: str = Form(""),
+    talla_letra: str = Form(..., min_length=1, max_length=1),
+    precio_base: float = Form(..., gt=0),
+    precio_descuento: float = Form(..., gt=0),
+    precio_sugerido: float = Form(..., gt=0),
+    estado_id: int = Form(...),
+    base_repo: BaseRepository = Depends(get_base_repo),
+    usuario=Depends(administrador_actual),
+):
+    if estado_id not in (1, 2):
+        raise HTTPException(status_code=400, detail="El estado seleccionado no es válido.")
+    codigo = codigo.strip()
+    if not codigo:
+        raise HTTPException(status_code=400, detail="El código del producto es obligatorio.")
+    talla_letra = talla_letra.upper()
+    if not base_repo.execute_query(
+        "SELECT label FROM sizes WHERE label = %s",
+        (talla_letra,),
+        fetch=True,
+    ):
+        raise HTTPException(status_code=400, detail="La categoría de talla no existe.")
+    if base_repo.execute_query(
+        """
+        SELECT id FROM base_price
+        WHERE product_id = %s AND size_label = %s AND id <> %s
+        """,
+        (producto_id, talla_letra, precio_id),
+        fetch=True,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe un registro para ese producto y categoría de talla.",
+        )
+    if not base_repo.execute_query(
+        "SELECT id FROM companies WHERE id = %s",
+        (empresa_id,),
+        fetch=True,
+    ):
+        raise HTTPException(status_code=400, detail="La marca seleccionada no existe.")
+    if base_repo.execute_query(
+        """
+        SELECT id FROM products
+        WHERE company_id = %s AND code = %s AND id <> %s
+        """,
+        (empresa_id, codigo, producto_id),
+        fetch=True,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe otro producto con ese código para la marca seleccionada.",
+        )
+
+    resultado = base_repo.execute_query(
+        """
+        WITH precio_actualizado AS (
+            UPDATE base_price
+            SET size_label = %s,
+                cost_without_discount = %s,
+                cost_with_discount = %s,
+                sale_price_suggested = %s,
+                state_id = %s
+            WHERE id = %s AND product_id = %s
+            RETURNING product_id
+        )
+        UPDATE products
+        SET company_id = %s, code = %s, state_id = %s
+        WHERE id = (SELECT product_id FROM precio_actualizado)
+        RETURNING id
+        """,
+        (
+            talla_letra, precio_base, precio_descuento, precio_sugerido,
+            estado_id, precio_id, producto_id, empresa_id, codigo,
+            estado_id,
+        ),
+        fetch=True,
+    )
+    if not resultado:
+        raise HTTPException(status_code=404, detail="No se encontró el registro del catálogo.")
+    filtros = {
+        key: value
+        for key, value in (
+            ("marca_filtro", marca_filtro.strip()),
+            ("codigo_filtro", codigo_filtro.strip()),
+        )
+        if value and value.strip()
+    }
+    query = urlencode(filtros)
+    return RedirectResponse(
+        url=f"/formularios?{query}#productos" if query else "/formularios#productos",
+        status_code=303,
+    )
 
 @router.post("/tallas/agregar")
 def agregar_talla(
