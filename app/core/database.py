@@ -62,6 +62,25 @@ def init_db():
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS app_users (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(80) NOT NULL,
+            password_hash VARCHAR(255) NOT NULL,
+            role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'vendedor')),
+            seller_id INT UNIQUE REFERENCES seller(id),
+            state_id INT NOT NULL DEFAULT 1 REFERENCES states(id),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK (
+                (role = 'admin' AND seller_id IS NULL)
+                OR (role = 'vendedor' AND seller_id IS NOT NULL)
+            )
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_lower_idx
+        ON app_users (lower(username))
+        """,
+        """
         CREATE TABLE IF NOT EXISTS companies (
             id SERIAL PRIMARY KEY,
             name VARCHAR(100) NOT NULL UNIQUE,
@@ -95,11 +114,58 @@ def init_db():
             seller_id INT NOT NULL REFERENCES seller(id),
             product_id INT NOT NULL REFERENCES products(id),
             quantity_sold INT NOT NULL,
+            number_sold INT NOT NULL DEFAULT 0,
             historical_base_price NUMERIC(10, 2) NOT NULL,
             sale_price NUMERIC(10, 2) NOT NULL,
             commission INT NOT NULL,
             base_price_id INT REFERENCES base_price(id),
             created_at DATE DEFAULT CURRENT_DATE
+        )
+        """,
+        """
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS number_sold INT NOT NULL DEFAULT 0
+        """,
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = 'sales'
+                  AND column_name = 'numero_vendido'
+            ) THEN
+                UPDATE sales
+                SET number_sold = numero_vendido
+                WHERE number_sold = 0 AND numero_vendido <> 0;
+            END IF;
+        END;
+        $$
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS daily_expenses (
+            id SERIAL PRIMARY KEY,
+            expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            category VARCHAR(30) NOT NULL CHECK (
+                category IN (
+                    'Comida', 'Refacciones', 'Tortillas', 'Frescos',
+                    'Desayuno', 'Almuerzo', 'Pan', 'Pago Bodega', 'Pago Puestos', 'Otros gastos varios'
+                )
+            ),
+            description VARCHAR(200),
+            amount NUMERIC(10, 2) NOT NULL CHECK (amount >= 0),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS seller_payments (
+            id SERIAL PRIMARY KEY,
+            seller_id INT NOT NULL REFERENCES seller(id),
+            payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            amount NUMERIC(10, 2) NOT NULL CHECK (amount >= 0),
+            notes VARCHAR(200),
+            UNIQUE (seller_id, payment_date)
         )
         """,
     ]
@@ -118,6 +184,14 @@ def init_db():
                 ON CONFLICT (id) DO NOTHING
                 """,
                 (1, "Activo", "general", "Registro activo")
+            )
+            cursor.execute(
+                """
+                INSERT INTO states (id, name, module, description)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (2, "Inactivo", "general", "Registro inactivo")
             )
             sizes_base = [
                 ('A', 20, 26), ('B', 27, 32), ('C', 33, 36), ('D', 37, 43),

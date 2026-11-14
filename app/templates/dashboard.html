@@ -12,81 +12,274 @@
             <a class="navbar-brand" href="/">Sistema Ventas (SOLID)</a>
             <div class="navbar-nav">
                 <a class="nav-link active" href="/">Dashboard</a>
-                <a class="nav-link" href="/formularios">Administración y Catálogos</a>
+                <a class="nav-link" href="/formularios">
+                    {% if es_admin %}Administración y Catálogos{% else %}Registrar ventas{% endif %}
+                </a>
+            </div>
+            <div class="d-flex align-items-center gap-3 text-white">
+                <span>{{ usuario["username"] }} · {{ "Administrador" if es_admin else "Vendedor" }}</span>
+                <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
             </div>
         </div>
     </nav>
-    <div class="container">
+    <div class="container mb-5">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white"><h5 class="mb-0">Filtros del reporte</h5></div>
+            <div class="card-body">
+                <form id="filtros-reporte" method="GET" action="/" class="row g-3 align-items-end">
+                    <div class="col-12 col-md-3">
+                        <label for="tipo_periodo" class="form-label">Período</label>
+                        <select id="tipo_periodo" class="form-select">
+                            <option value="" {% if not (filtro_fecha or filtro_mes or filtro_semana) %}selected{% endif %}>Todo</option>
+                            <option value="fecha" {% if filtro_fecha %}selected{% endif %}>Día</option>
+                            <option value="mes" {% if filtro_mes %}selected{% endif %}>Mes</option>
+                            <option value="semana" {% if filtro_semana %}selected{% endif %}>Semana</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-3" id="filtro-dia">
+                        <label for="fecha" class="form-label">Fecha</label>
+                        <input type="date" id="fecha" name="fecha" class="form-control" value="{{ filtro_fecha }}">
+                    </div>
+                    <div class="col-12 col-md-3" id="filtro-mes">
+                        <label for="mes" class="form-label">Mes</label>
+                        <input type="month" id="mes" name="mes" class="form-control" value="{{ filtro_mes }}">
+                    </div>
+                    <div class="col-12 col-md-3" id="filtro-semana">
+                        <label for="semana" class="form-label">Semana</label>
+                        <input type="week" id="semana" name="semana" class="form-control" value="{{ filtro_semana }}">
+                    </div>
+                    {% if es_admin %}<div class="col-12 col-md-3">
+                        <label for="vendedor_id" class="form-label">Vendedor</label>
+                        <select id="vendedor_id" name="vendedor_id" class="form-select">
+                            <option value="">Todos</option>
+                            {% for v in vendedores %}
+                            <option value="{{ v[0] }}" {% if vendedor_seleccionado == v[0] %}selected{% endif %}>{{ v[1] }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>{% endif %}
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-primary">Filtrar</button>
+                        <a href="/" class="btn btn-outline-secondary">Limpiar filtros</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {% if es_admin %}
         <div class="row g-3 mb-4">
-            <div class="col-12 col-md-4">
+            <div class="col-12 col-md-3">
                 <div class="card bg-primary text-white h-100 shadow-sm">
                     <div class="card-body text-center">
                         <h6>Total Bruto Vendido</h6>
-                        <h2>GTQ{{ total_bruto }}</h2>
+                        <h2>GTQ{{ "%.2f"|format(total_bruto) }}</h2>
                     </div>
                 </div>
             </div>
-            <div class="col-12 col-md-4">
+            <div class="col-12 col-md-3">
                 <div class="card bg-warning text-dark h-100 shadow-sm">
                     <div class="card-body text-center">
                         <h6>Comisiones de Vendedores</h6>
-                        <h2>GTQ{{ total_comisiones }}</h2>
+                        <h2>GTQ{{ "%.2f"|format(total_comisiones) }}</h2>
                     </div>
                 </div>
             </div>
-            <div class="col-12 col-md-4">
+            <div class="col-12 col-md-3">
+                <div class="card bg-danger text-white h-100 shadow-sm">
+                    <div class="card-body text-center">
+                        <h6>Gastos del período</h6>
+                        <h2>GTQ{{ "%.2f"|format(total_gastos) }}</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-3">
                 <div class="card bg-success text-white h-100 shadow-sm">
                     <div class="card-body text-center">
                         <h6>Utilidad Neta Empresa</h6>
-                        <h2>GTQ{{ total_utilidad }}</h2>
+                        <h2>GTQ{{ "%.2f"|format(total_utilidad) }}</h2>
+                        <small>Antes de gastos: GTQ{{ "%.2f"|format(utilidad_antes_gastos) }}</small>
                     </div>
                 </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="row g-3 mb-4">
+            <div class="col-12 col-md-4">
+                <div class="card bg-warning text-dark shadow-sm">
+                    <div class="card-body text-center">
+                        <h6>Comisión del período</h6>
+                        <h2>GTQ{{ "%.2f"|format(total_comisiones) }}</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if es_admin %}
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0">Registrar gasto del día</h5>
+                <small class="text-muted">Los gastos se descuentan de la utilidad del período, también cuando se filtra por vendedor.</small>
+            </div>
+            <div class="card-body">
+                <form action="/gastos/registrar" method="POST" class="row g-3 align-items-end">
+                    <div class="col-12 col-md-2">
+                        <label class="form-label">Fecha</label>
+                        <input type="date" name="fecha" class="form-control" value="{{ fecha_hoy }}" required>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label">Categoría</label>
+                        <select name="categoria" class="form-select" required>
+                            {% for categoria in categorias_gastos %}<option value="{{ categoria }}">{{ categoria }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label">Descripción (opcional)</label>
+                        <input type="text" name="descripcion" maxlength="200" class="form-control">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label class="form-label">Monto (GTQ)</label>
+                        <input type="number" name="monto" min="0" step="0.01" class="form-control" required>
+                    </div>
+                    <div class="col-12 col-md-2"><button class="btn btn-danger w-100" type="submit">Guardar gasto</button></div>
+                </form>
             </div>
         </div>
 
         <div class="card shadow-sm mb-4">
-            <div class="card-header bg-white">
-                <h5 class="mb-0">Historial de Ventas</h5>
+            <div class="card-header bg-white"><h5 class="mb-0">Gastos registrados (editables)</h5></div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light"><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Monto (GTQ)</th><th></th></tr></thead>
+                    <tbody>
+                        {% for g in gastos %}
+                        <tr>
+                            <td><input form="editar-gasto-{{ g[0] }}" type="date" name="fecha" class="form-control form-control-sm" value="{{ g[1] }}" required></td>
+                            <td>
+                                <select form="editar-gasto-{{ g[0] }}" name="categoria" class="form-select form-select-sm" required>
+                                    {% for categoria in categorias_gastos %}
+                                    <option value="{{ categoria }}" {% if categoria == g[2] %}selected{% endif %}>{{ categoria }}</option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td><input form="editar-gasto-{{ g[0] }}" type="text" name="descripcion" maxlength="200" class="form-control form-control-sm" value="{{ g[3] or '' }}"></td>
+                            <td><input form="editar-gasto-{{ g[0] }}" type="number" name="monto" min="0" step="0.01" class="form-control form-control-sm" value="{{ g[4] }}" required></td>
+                            <td>
+                                <form id="editar-gasto-{{ g[0] }}" action="/gastos/modificar" method="POST">
+                                    <input type="hidden" name="gasto_id" value="{{ g[0] }}">
+                                    <button class="btn btn-sm btn-outline-primary" type="submit">Guardar cambios</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="5" class="text-center text-muted py-3">No hay gastos para este período.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>ID</th>
-                                <th>Fecha</th>
-                                <th>Vendedor</th>
-                                <th>Empresa/Código</th>
-                                <th>Talla</th>
-                                <th>Costo Base</th>
-                                <th>Precio Venta</th>
-                                <th>Comisión Vdr</th>
-                                <th>Utilidad Neta</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for v in ventas %}
-                            <tr>
-                                <td>{{ v.id }}</td>
-                                <td>{{ v.fecha }}</td>
-                                <td>{{ v.vendedor }}</td>
-                                <td>{{ v.empresa }} - {{ v.codigo }}</td>
-                                <td><span class="badge bg-secondary">{{ v.talla }}</span></td>
-                                <td>${{ v.base }}</td>
-                                <td class="text-primary fw-bold">${{ v.vendido }}</td>
-                                <td class="text-danger">GTQ{{ v.comision }}</td>
-                                <td class="text-success fw-bold">${{ v.utilidad }}</td>
-                            </tr>
-                            {% else %}
-                            <tr>
-                                <td colspan="9" class="text-center text-muted py-4">No hay ventas registradas hoy.</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+        </div>
+        {% endif %}
+
+        {% if es_admin %}<div class="card shadow-sm mb-4">
+            <div class="card-header bg-white"><h5 class="mb-0">Registrar pago de vendedor</h5><small class="text-muted">Un pago por vendedor y día; al guardar de nuevo se actualiza el monto.</small></div>
+            <div class="card-body">
+                <form action="/vendedores/pagos" method="POST" class="row g-3 align-items-end">
+                    <div class="col-12 col-md-3">
+                        <label class="form-label">Vendedor</label>
+                        <select name="vendedor_id" class="form-select" required>
+                            {% for v in vendedores %}<option value="{{ v[0] }}">{{ v[1] }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label">Fecha del pago</label>
+                        <input type="date" name="fecha" class="form-control" value="{{ fecha_hoy }}" required>
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label">Monto pagado (GTQ)</label>
+                        <input type="number" name="monto" min="0" step="0.01" class="form-control" required>
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <label class="form-label">Notas (opcional)</label>
+                        <input type="text" name="notas" maxlength="200" class="form-control">
+                    </div>
+                    <div class="col-12 col-md-1"><button class="btn btn-success w-100" type="submit">Guardar</button></div>
+                </form>
+            </div>
+        </div>{% endif %}
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white"><h5 class="mb-0">{% if es_admin %}Reporte diario de vendedores{% else %}Mi reporte de comisiones{% endif %}</h5></div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light"><tr><th>Fecha</th>{% if es_admin %}<th>Vendedor</th>{% endif %}<th>Ventas</th><th>Comisión (GTQ)</th><th>Pagado (GTQ)</th><th>Pendiente (GTQ)</th></tr></thead>
+                    <tbody>
+                        {% for r in reporte_vendedores %}
+                        <tr>
+                            <td>{{ r[2] }}</td>{% if es_admin %}<td>{{ r[1] }}</td>{% endif %}<td>{{ r[3] }}</td>
+                            <td>GTQ{{ "%.2f"|format(r[4]) }}</td>
+                            <td>GTQ{{ "%.2f"|format(r[5]) }}</td>
+                            <td>GTQ{{ "%.2f"|format(r[4] - r[5]) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="{{ 6 if es_admin else 5 }}" class="text-center text-muted py-3">No hay comisiones o pagos para este período.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white"><h5 class="mb-0">Historial de Ventas</h5></div>
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr><th>ID</th><th>Fecha</th>{% if es_admin %}<th>Vendedor</th>{% endif %}<th>Empresa/Código</th><th>Talla</th><th>Número vendido</th>{% if es_admin %}<th>Costo Base</th>{% endif %}<th>Precio Venta</th><th>Comisión Vdr</th>{% if es_admin %}<th>Utilidad Neta</th>{% endif %}</tr>
+                    </thead>
+                    <tbody>
+                        {% for v in ventas %}
+                        <tr>
+                            <td>{{ v.id }}</td><td>{{ v.fecha }}</td>{% if es_admin %}<td>{{ v.vendedor }}</td>{% endif %}
+                            <td>{{ v.empresa }} - {{ v.codigo }}</td>
+                            <td><span class="badge bg-secondary">{{ v.talla }}</span></td>
+                            <td>{{ v.numero_vendido if v.numero_vendido else "Sin dato" }}</td>
+                            {% if es_admin %}<td>GTQ{{ "%.2f"|format(v.base) }}</td>{% endif %}
+                            <td class="text-primary fw-bold">GTQ{{ "%.2f"|format(v.vendido) }}</td>
+                            <td class="text-danger">GTQ{{ "%.2f"|format(v.comision) }}</td>
+                            {% if es_admin %}<td class="text-success fw-bold">GTQ{{ "%.2f"|format(v.utilidad) }}</td>{% endif %}
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="{{ 10 if es_admin else 7 }}" class="text-center text-muted py-4">No hay ventas para este período.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
+    <script>
+        const tipoPeriodo = document.getElementById("tipo_periodo");
+        const camposPeriodo = {
+            fecha: document.getElementById("fecha"),
+            mes: document.getElementById("mes"),
+            semana: document.getElementById("semana")
+        };
+        const contenedoresPeriodo = {
+            fecha: document.getElementById("filtro-dia"),
+            mes: document.getElementById("filtro-mes"),
+            semana: document.getElementById("filtro-semana")
+        };
+        function mostrarCampoPeriodo() {
+            for (const tipo of Object.keys(camposPeriodo)) {
+                contenedoresPeriodo[tipo].classList.toggle("d-none", tipoPeriodo.value !== tipo);
+            }
+        }
+        tipoPeriodo.addEventListener("change", mostrarCampoPeriodo);
+        document.getElementById("filtros-reporte").addEventListener("submit", function () {
+            for (const tipo of Object.keys(camposPeriodo)) {
+                if (tipo !== tipoPeriodo.value) camposPeriodo[tipo].disabled = true;
+            }
+            const vendedor = document.getElementById("vendedor_id");
+            if (vendedor && !vendedor.value) vendedor.disabled = true;
+        });
+        mostrarCampoPeriodo();
+    </script>
 </body>
 </html>

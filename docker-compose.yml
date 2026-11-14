@@ -30,6 +30,10 @@ services:
       - DB_PORT=5432
       - DB_HOST=db
       - APP_PORT=${APP_PORT}
+      - SESSION_SECRET_KEY=${SESSION_SECRET_KEY:-}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - ADMIN_SETUP_KEY=${ADMIN_SETUP_KEY:-}
     volumes:
       - ./app:/code/app
     command: sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT} --reload"  

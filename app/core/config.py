@@ -1,4 +1,5 @@
 import os
+import secrets
 
 class Settings:
     DB_USER: str = os.getenv("DB_USER", "usuario_ventas")
@@ -7,6 +8,12 @@ class Settings:
     DB_PORT: str = os.getenv("DB_PORT", "5432")
     DB_HOST: str = os.getenv("DB_HOST", "db")
     APP_PORT: int = int(os.getenv("APP_PORT", 8000))
+    SESSION_SECRET_KEY: str = os.getenv(
+        "SESSION_SECRET_KEY"
+    ) or secrets.token_urlsafe(48)
+    ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "")
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
+    ADMIN_SETUP_KEY: str = os.getenv("ADMIN_SETUP_KEY", "")
 
     @property
     def DATABASE_URL(self) -> str:
