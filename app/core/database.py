@@ -92,8 +92,26 @@ def init_db():
             id SERIAL PRIMARY KEY,
             company_id INT NOT NULL REFERENCES companies(id) ON DELETE RESTRICT,
             code VARCHAR(50) NOT NULL,
+            description VARCHAR(100) NOT NULL DEFAULT '',
             state_id INT NOT NULL DEFAULT 1 REFERENCES states(id),
             UNIQUE (company_id, code)
+        )
+        """,
+        """
+        ALTER TABLE products
+        ADD COLUMN IF NOT EXISTS description VARCHAR(100) NOT NULL DEFAULT ''
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS colors (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100) NOT NULL UNIQUE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS product_colors (
+            product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            color_id INT NOT NULL REFERENCES colors(id) ON DELETE RESTRICT,
+            PRIMARY KEY (product_id, color_id)
         )
         """,
         """
@@ -113,6 +131,7 @@ def init_db():
             id SERIAL PRIMARY KEY,
             seller_id INT NOT NULL REFERENCES seller(id),
             product_id INT NOT NULL REFERENCES products(id),
+            color_id INT REFERENCES colors(id),
             quantity_sold INT NOT NULL,
             number_sold INT NOT NULL DEFAULT 0,
             historical_base_price NUMERIC(10, 2) NOT NULL,
@@ -121,6 +140,10 @@ def init_db():
             base_price_id INT REFERENCES base_price(id),
             created_at DATE DEFAULT CURRENT_DATE
         )
+        """,
+        """
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS color_id INT REFERENCES colors(id)
         """,
         """
         ALTER TABLE sales
@@ -205,6 +228,18 @@ def init_db():
                 ON CONFLICT (label) DO NOTHING
                 """,
                 sizes_base
+            )
+            colors_base = [
+                "Negro liso", "Negro Nubock", "Blanco", "Azul", "Cafe",
+                "Arena", "Hongo", "Amarillo", "Cafe Graso", "Cocoa",
+                "Blanco/Lila",
+            ]
+            cursor.executemany(
+                """
+                INSERT INTO colors (name) VALUES (%s)
+                ON CONFLICT (name) DO NOTHING
+                """,
+                [(name,) for name in colors_base],
             )
             cursor.execute(
                 "INSERT INTO seller (id, name, code) VALUES (%s, %s, %s) "

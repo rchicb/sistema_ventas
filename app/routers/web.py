@@ -84,7 +84,7 @@ def dashboard(
     
     for item in raw_ventas:
         (
-            v_id, v_nombre, p_empresa, p_codigo, p_talla, p_base, p_vendido,
+            v_id, v_nombre, p_empresa, p_codigo, p_talla, p_color, p_base, p_vendido,
             porc_comision, fecha_venta, numero_vendido
         ) = item
         
@@ -101,7 +101,8 @@ def dashboard(
         
         ventas_procesadas.append({
             "id": v_id, "vendedor": v_nombre, "empresa": p_empresa, "codigo": p_codigo,
-            "talla": p_talla, "base": p_base, "vendido": p_vendido, "comision": comision,
+            "talla": p_talla, "color": p_color, "base": p_base,
+            "vendido": p_vendido, "comision": comision,
             "utilidad": utilidad, "fecha": fecha_venta, "numero_vendido": numero_vendido
         })
 
@@ -177,7 +178,14 @@ def mostrar_formularios(
             f"""
             SELECT bp.id, p.id, c.id, c.name, p.code, bp.size_label,
                    s.start_number, s.end_number, bp.cost_without_discount,
-                   bp.cost_with_discount, bp.sale_price_suggested, bp.state_id
+                   bp.cost_with_discount, bp.sale_price_suggested, bp.state_id,
+                   p.description,
+                   ARRAY(
+                       SELECT pc.color_id
+                       FROM product_colors pc
+                       WHERE pc.product_id = p.id
+                       ORDER BY pc.color_id
+                   )
             FROM products p
             JOIN companies c ON c.id = p.company_id
             JOIN base_price bp ON bp.product_id = p.id
@@ -205,6 +213,10 @@ def mostrar_formularios(
         "SELECT id, name FROM companies ORDER BY name",
         fetch=True,
     ) or []
+    colores = base_repo.execute_query(
+        "SELECT id, name FROM colors ORDER BY name",
+        fetch=True,
+    ) or []
     tallas_activas = base_repo.execute_query(
         """
         SELECT label, start_number || ' - ' || end_number
@@ -229,6 +241,7 @@ def mostrar_formularios(
         estados=estados,
         empresas=empresas,
         empresas_catalogo=empresas_catalogo,
+        colores=colores,
         es_admin=True,
         usuario=usuario,
         usuarios=usuarios,
@@ -262,7 +275,8 @@ def mostrar_ventas(
         SELECT bp.id, c.name, p.code,
                ' [' || s.start_number || ' - ' || s.end_number || ' ]',
                bp.cost_without_discount, bp.cost_with_discount,
-               bp.sale_price_suggested, s.start_number, s.end_number
+               bp.sale_price_suggested, s.start_number, s.end_number,
+               p.id, p.description
         FROM products p
         JOIN companies c ON c.id = p.company_id
         JOIN base_price bp ON bp.product_id = p.id
@@ -273,10 +287,25 @@ def mostrar_ventas(
         """,
         fetch=True,
     ) or []
+    relaciones_colores = base_repo.execute_query(
+        """
+        SELECT pc.product_id, colors.id, colors.name
+        FROM product_colors pc
+        JOIN colors ON colors.id = pc.color_id
+        ORDER BY colors.name
+        """,
+        fetch=True,
+    ) or []
+    colores_por_producto = {}
+    for product_id, color_id, nombre_color in relaciones_colores:
+        colores_por_producto.setdefault(product_id, []).append(
+            {"id": color_id, "name": nombre_color}
+        )
     html_content = templates.env.get_template("ventas.html").render(
         request=request,
         vendedores=vendedores,
         productos=productos,
+        colores_por_producto=colores_por_producto,
         es_admin=es_admin,
         usuario=usuario,
     )
@@ -288,6 +317,7 @@ def registrar_venta(
     precio_vendido: float = Form(..., gt=0),
     porcentaje_ganancia: int = Form(...),
     numero_vendido: int = Form(..., ge=1),
+    color_id: int = Form(None, ge=1),
     vendedor_id: int = Form(None, ge=1),
     venta_repo: VentaRepository = Depends(get_venta_repo),
     usuario=Depends(usuario_actual),
@@ -301,7 +331,7 @@ def registrar_venta(
     try:
         venta_repo.registrar_venta(
             vendedor_id, base_price_id, precio_vendido, porcentaje_ganancia,
-            numero_vendido
+            numero_vendido, color_id
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
@@ -371,6 +401,7 @@ def agregar_vendedor(
 @router.post("/productos/agregar")
 def agregar_producto(
     codigo: str = Form(...),
+    descripcion: str = Form("", max_length=100),
     talla_letra: str = Form(...),
     precio_base: float = Form(..., gt=0),
     precio_descuento: float = Form(..., gt=0),
@@ -378,11 +409,21 @@ def agregar_producto(
     estado_id: int = Form(...),
     empresa_id: int = Form(None),
     nueva_empresa: str = Form(""),
+    color_ids: list[int] = Form([]),
     base_repo: BaseRepository = Depends(get_base_repo),
     usuario=Depends(administrador_actual),
 ):
     if estado_id not in (1, 2):
         raise HTTPException(status_code=400, detail="El estado seleccionado no es válido.")
+    color_ids = sorted(set(color_ids))
+    if color_ids and len(
+        base_repo.execute_query(
+            "SELECT id FROM colors WHERE id = ANY(%s)",
+            (color_ids,),
+            fetch=True,
+        ) or []
+    ) != len(color_ids):
+        raise HTTPException(status_code=400, detail="Uno o más colores seleccionados no existen.")
     if not base_repo.execute_query(
         "SELECT label FROM sizes WHERE label = %s",
         (talla_letra.upper(),),
@@ -418,13 +459,14 @@ def agregar_producto(
 
     producto = base_repo.execute_query(
         """
-        INSERT INTO products (company_id, code, state_id)
-        VALUES (%s, %s, %s)
+        INSERT INTO products (company_id, code, description, state_id)
+        VALUES (%s, %s, %s, %s)
         ON CONFLICT (company_id, code)
-        DO UPDATE SET state_id = EXCLUDED.state_id
+        DO UPDATE SET description = EXCLUDED.description,
+                      state_id = EXCLUDED.state_id
         RETURNING id
         """,
-        (company_id, codigo.strip(), estado_id),
+        (company_id, codigo.strip(), descripcion.strip(), estado_id),
         fetch=True,
     )
     product_id = producto[0][0]
@@ -446,6 +488,15 @@ def agregar_producto(
             precio_sugerido, estado_id
         ),
     )
+    if color_ids:
+        base_repo.execute_query(
+            """
+            INSERT INTO product_colors (product_id, color_id)
+            SELECT %s, selected.color_id FROM unnest(%s::int[]) AS selected(color_id)
+            ON CONFLICT DO NOTHING
+            """,
+            (product_id, color_ids),
+        )
     return RedirectResponse(url="/formularios", status_code=303)
 
 @router.post("/productos/modificar")
@@ -454,8 +505,10 @@ def modificar_producto(
     producto_id: int = Form(..., ge=1),
     empresa_id: int = Form(..., ge=1),
     codigo: str = Form(..., min_length=1, max_length=50),
+    descripcion: str = Form("", max_length=100),
     marca_filtro: str = Form(""),
     codigo_filtro: str = Form(""),
+    color_ids: list[int] = Form([]),
     talla_letra: str = Form(..., min_length=1, max_length=1),
     precio_base: float = Form(..., gt=0),
     precio_descuento: float = Form(..., gt=0),
@@ -466,6 +519,15 @@ def modificar_producto(
 ):
     if estado_id not in (1, 2):
         raise HTTPException(status_code=400, detail="El estado seleccionado no es válido.")
+    color_ids = sorted(set(color_ids))
+    if color_ids and len(
+        base_repo.execute_query(
+            "SELECT id FROM colors WHERE id = ANY(%s)",
+            (color_ids,),
+            fetch=True,
+        ) or []
+    ) != len(color_ids):
+        raise HTTPException(status_code=400, detail="Uno o más colores seleccionados no existen.")
     codigo = codigo.strip()
     if not codigo:
         raise HTTPException(status_code=400, detail="El código del producto es obligatorio.")
@@ -520,19 +582,22 @@ def modificar_producto(
             RETURNING product_id
         )
         UPDATE products
-        SET company_id = %s, code = %s, state_id = %s
+        SET company_id = %s, code = %s, description = %s, state_id = %s
         WHERE id = (SELECT product_id FROM precio_actualizado)
         RETURNING id
         """,
         (
             talla_letra, precio_base, precio_descuento, precio_sugerido,
             estado_id, precio_id, producto_id, empresa_id, codigo,
+            descripcion.strip(),
             estado_id,
         ),
         fetch=True,
     )
     if not resultado:
         raise HTTPException(status_code=404, detail="No se encontró el registro del catálogo.")
+    producto_actualizado_id = resultado[0][0]
+    base_repo.reemplazar_colores_producto(producto_actualizado_id, color_ids)
     filtros = {
         key: value
         for key, value in (

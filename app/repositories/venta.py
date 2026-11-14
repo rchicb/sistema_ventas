@@ -8,13 +8,14 @@ class VentaRepository(BaseRepository):
         precio_vendido: float,
         porcentaje_ganancia: int,
         numero_vendido: int,
+        color_id: int = None,
     ):
         query = """
             INSERT INTO sales (
-                seller_id, product_id, quantity_sold, number_sold, historical_base_price,
+                seller_id, product_id, color_id, quantity_sold, number_sold, historical_base_price,
                 sale_price, commission, base_price_id
             )
-            SELECT %s, p.id, 1, %s, bp.cost_without_discount, %s, %s, bp.id
+            SELECT %s, p.id, %s, 1, %s, bp.cost_without_discount, %s, %s, bp.id
             FROM base_price bp
             JOIN products p ON p.id = bp.product_id
             JOIN sizes size ON size.label = bp.size_label
@@ -27,19 +28,30 @@ class VentaRepository(BaseRepository):
                 AND company.state_id = 1
                 AND seller.state_id = 1
                 AND %s BETWEEN size.start_number AND size.end_number
+                AND (
+                    (%s IS NULL AND NOT EXISTS (
+                        SELECT 1 FROM product_colors pc
+                        WHERE pc.product_id = p.id
+                    ))
+                    OR EXISTS (
+                        SELECT 1 FROM product_colors pc
+                        WHERE pc.product_id = p.id AND pc.color_id = %s
+                    )
+                )
             RETURNING id
         """
         result = self.execute_query(
             query,
             (
-                vendedor_id, numero_vendido, precio_vendido,
-                porcentaje_ganancia, vendedor_id, base_price_id, numero_vendido
+                vendedor_id, color_id, numero_vendido, precio_vendido,
+                porcentaje_ganancia, vendedor_id, base_price_id,
+                numero_vendido, color_id, color_id,
             ),
             fetch=True
         )
         if not result:
             raise ValueError(
-                "No se pudo registrar la venta. Verifique el vendedor, el producto activo y el rango de talla."
+                "No se pudo registrar la venta. Verifique el vendedor, el producto, el color seleccionado y el rango de talla."
             )
 
     def obtener_reporte_ganancias(
@@ -59,7 +71,7 @@ class VentaRepository(BaseRepository):
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         query = f"""
             SELECT 
-                s.id, seller.name, c.name, p.code, bp.size_label,
+                s.id, seller.name, c.name, p.code, bp.size_label, colors.name,
                 s.historical_base_price, s.sale_price, s.commission, s.created_at,
                 s.number_sold AS numero_vendido
             FROM sales s
@@ -67,6 +79,7 @@ class VentaRepository(BaseRepository):
             JOIN products p ON s.product_id = p.id
             JOIN companies c ON p.company_id = c.id
             LEFT JOIN base_price bp ON bp.id = s.base_price_id
+            LEFT JOIN colors ON colors.id = s.color_id
             {where_clause}
             ORDER BY s.created_at DESC, s.id DESC
         """

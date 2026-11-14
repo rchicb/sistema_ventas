@@ -49,6 +49,19 @@
                                     </div>
                                     <div class="mb-2"><input type="text" name="codigo" class="form-control" placeholder="Código de Producto" required></div>
                                     <div class="mb-2">
+                                        <label class="form-label">Descripción (máximo 100 caracteres)</label>
+                                        <input type="text" name="descripcion" maxlength="100" class="form-control">
+                                    </div>
+                                    <div class="mb-2">
+                                        <label for="colores_producto" class="form-label">Colores disponibles</label>
+                                        <select id="colores_producto" name="color_ids" class="form-select" multiple size="5">
+                                            {% for color in colores %}
+                                            <option value="{{ color[0] }}">{{ color[1] }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <small class="form-text text-muted">Puede seleccionar varios colores con Ctrl o Command.</small>
+                                    </div>
+                                    <div class="mb-2">
                                         <select name="talla_letra" class="form-select" required>
                                             {% for t in tallas %}
                                             <option value="{{ t[0] }}">Categoría {{ t[0] }} ({{ t[1] }})</option>
@@ -158,10 +171,11 @@
                         <p class="text-muted mb-0">Seleccione una marca o ingrese un código para buscar productos del catálogo.</p>
                         {% elif productos_catalogo %}
                         <div class="table-responsive">
-                            <table class="table table-sm table-striped align-middle" style="min-width: 1250px;">
+                            <table class="table table-sm table-striped align-middle" style="min-width: 1650px;">
                                 <thead>
                                     <tr>
                                         <th>Marca</th><th>Código</th><th>Talla</th>
+                                        <th>Descripción</th><th>Colores disponibles</th>
                                         <th>Precio base</th><th>Precio con descuento</th>
                                         <th>Precio sugerido</th><th>Estado</th><th></th>
                                     </tr>
@@ -181,6 +195,14 @@
                                             <select form="producto-{{ p[0] }}" name="talla_letra" class="form-select form-select-sm" required>
                                                 {% for talla in tallas_catalogo %}
                                                 <option value="{{ talla[0] }}" {% if talla[0] == p[5] %}selected{% endif %}>{{ talla[0] }} ({{ talla[1] }})</option>
+                                                {% endfor %}
+                                            </select>
+                                        </td>
+                                        <td><input form="producto-{{ p[0] }}" name="descripcion" maxlength="100" value="{{ p[12] }}" class="form-control form-control-sm"></td>
+                                        <td>
+                                            <select form="producto-{{ p[0] }}" name="color_ids" class="form-select form-select-sm" multiple size="3">
+                                                {% for color in colores %}
+                                                <option value="{{ color[0] }}" {% if color[0] in p[13] %}selected{% endif %}>{{ color[1] }}</option>
                                                 {% endfor %}
                                             </select>
                                         </td>
@@ -205,7 +227,7 @@
                                         </td>
                                     </tr>
                                     {% else %}
-                                    <tr><td colspan="8" class="text-center text-muted">No hay productos registrados.</td></tr>
+                                    <tr><td colspan="10" class="text-center text-muted">No hay productos registrados.</td></tr>
                                     {% endfor %}
                                 </tbody>
                             </table>

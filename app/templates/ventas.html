@@ -54,12 +54,19 @@
                                             data-discount="{{ p[5] }}"
                                             data-suggested="{{ p[6] }}"
                                             data-start="{{ p[7] }}"
-                                            data-end="{{ p[8] }}">
-                                        {{ p[1] }} {{ p[2] }} {{ p[3] }}{% if es_admin %} [Costo: GTQ {{ p[4] }} · Descuento: GTQ {{ p[5] }}]{% endif %}
+                                            data-end="{{ p[8] }}"
+                                            data-product-id="{{ p[9] }}">
+                                        {{ p[1] }} {{ p[2] }} {{ p[3] }}{% if p[10] %} · {{ p[10] }}{% endif %}{% if es_admin %} [Costo: GTQ {{ p[4] }} · Descuento: GTQ {{ p[5] }}]{% endif %}
                                     </option>
                                     {% endfor %}
                                 </select>
                                 <small id="producto_busqueda_estado" class="form-text text-muted" aria-live="polite"></small>
+                            </div>
+                            <div class="mb-3">
+                                <label for="color_select" class="form-label">Color</label>
+                                <select id="color_select" name="color_id" class="form-select">
+                                    <option value="">Sin color</option>
+                                </select>
                             </div>
                             <div class="row g-3 mb-3">
                                 <div class="col-12 col-md-6">
@@ -101,7 +108,9 @@
         </div>
     </main>
     <script>
+        const coloresPorProducto = {{ colores_por_producto | tojson }};
         const productoSelect = document.getElementById("producto_select");
+        const colorSelect = document.getElementById("color_select");
         const productoBusqueda = document.getElementById("producto_busqueda");
         const productoBusquedaEstado = document.getElementById("producto_busqueda_estado");
         const numeroVendido = document.getElementById("numero_vendido");
@@ -132,15 +141,37 @@
                     ? `${opcionesFiltradas.length} producto(s) encontrado(s).`
                     : "";
             }
+            actualizarColores();
             actualizarRangoNumero();
             calcularSugeridos();
         });
 
         productoSelect.addEventListener("change", function () {
             productoSeleccionado = this.value;
+            actualizarColores();
             actualizarRangoNumero();
             calcularSugeridos();
         });
+
+        function actualizarColores() {
+            const option = productoSelect.options[productoSelect.selectedIndex];
+            const productId = option ? option.getAttribute("data-product-id") : null;
+            const colores = productId ? coloresPorProducto[productId] || [] : [];
+            colorSelect.replaceChildren();
+
+            const opcionVacia = document.createElement("option");
+            opcionVacia.value = "";
+            opcionVacia.textContent = colores.length ? "Seleccione un color" : "Sin colores asignados";
+            colorSelect.append(opcionVacia);
+            colores.forEach(color => {
+                const opcion = document.createElement("option");
+                opcion.value = color.id;
+                opcion.textContent = color.name;
+                colorSelect.append(opcion);
+            });
+            colorSelect.required = colores.length > 0;
+            colorSelect.disabled = colores.length === 0;
+        }
 
         function actualizarRangoNumero() {
             const option = productoSelect.options[productoSelect.selectedIndex];
@@ -176,6 +207,7 @@
             }
         }
 
+        actualizarColores();
         actualizarRangoNumero();
         calcularSugeridos();
     </script>
