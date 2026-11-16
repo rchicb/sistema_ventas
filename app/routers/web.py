@@ -1,3 +1,4 @@
+import math
 from datetime import date, timedelta
 from urllib.parse import urlencode
 
@@ -152,6 +153,7 @@ def mostrar_formularios(
     request: Request,
     marca_filtro: str = "",
     codigo_filtro: str = "",
+    busqueda_filtro: str = "",
     base_repo: BaseRepository = Depends(get_base_repo),
     usuario=Depends(administrador_actual),
 ):
@@ -163,8 +165,11 @@ def mostrar_formularios(
         except ValueError:
             raise HTTPException(status_code=400, detail="La marca seleccionada no es válida.")
     codigo_filtro = codigo_filtro.strip()
+    busqueda_filtro = busqueda_filtro.strip()
     productos_catalogo = []
-    filtros_catalogo_aplicados = bool(marca_filtro_id or codigo_filtro)
+    filtros_catalogo_aplicados = bool(
+        marca_filtro_id or codigo_filtro or busqueda_filtro
+    )
     if filtros_catalogo_aplicados:
         condiciones = []
         parametros = []
@@ -174,6 +179,12 @@ def mostrar_formularios(
         if codigo_filtro:
             condiciones.append("p.code ILIKE %s")
             parametros.append(f"%{codigo_filtro}%")
+        if busqueda_filtro:
+            condiciones.append(
+                "(c.name ILIKE %s OR p.code ILIKE %s OR p.description ILIKE %s)"
+            )
+            termino = f"%{busqueda_filtro}%"
+            parametros.extend((termino, termino, termino))
         productos_catalogo = base_repo.execute_query(
             f"""
             SELECT bp.id, p.id, c.id, c.name, p.code, bp.size_label,
@@ -217,6 +228,30 @@ def mostrar_formularios(
         "SELECT id, name FROM colors ORDER BY name",
         fetch=True,
     ) or []
+    productos_asignacion_colores = base_repo.execute_query(
+        """
+        SELECT p.id, c.name, p.code, p.description,
+               ARRAY(
+                   SELECT pc.color_id
+                   FROM product_colors pc
+                   WHERE pc.product_id = p.id
+                   ORDER BY pc.color_id
+               )
+        FROM products p
+        JOIN companies c ON c.id = p.company_id
+        ORDER BY c.name, p.code
+        """,
+        fetch=True,
+    ) or []
+    productos_para_colores = [
+        {
+            "id": producto[0],
+            "label": f"{producto[1]} · {producto[2]}"
+            + (f" — {producto[3]}" if producto[3] else ""),
+            "color_ids": producto[4],
+        }
+        for producto in productos_asignacion_colores
+    ]
     tallas_activas = base_repo.execute_query(
         """
         SELECT label, start_number || ' - ' || end_number
@@ -235,6 +270,7 @@ def mostrar_formularios(
         productos_catalogo=productos_catalogo,
         marca_filtro=marca_filtro_id,
         codigo_filtro=codigo_filtro,
+        busqueda_filtro=busqueda_filtro,
         filtros_catalogo_aplicados=filtros_catalogo_aplicados,
         tallas=tallas_activas,
         tallas_catalogo=tallas,
@@ -242,6 +278,7 @@ def mostrar_formularios(
         empresas=empresas,
         empresas_catalogo=empresas_catalogo,
         colores=colores,
+        productos_para_colores=productos_para_colores,
         es_admin=True,
         usuario=usuario,
         usuarios=usuarios,
@@ -270,6 +307,15 @@ def mostrar_ventas(
         if not vendedores:
             raise HTTPException(status_code=403, detail="El vendedor asociado está inactivo.")
 
+    sucursales = base_repo.execute_query(
+        """
+        SELECT id, code, description
+        FROM branches
+        WHERE state_id = 1
+        ORDER BY code
+        """,
+        fetch=True,
+    ) or []
     productos = base_repo.execute_query(
         """
         SELECT bp.id, c.name, p.code,
@@ -304,8 +350,10 @@ def mostrar_ventas(
     html_content = templates.env.get_template("ventas.html").render(
         request=request,
         vendedores=vendedores,
+        sucursales=sucursales,
         productos=productos,
         colores_por_producto=colores_por_producto,
+        fecha_hoy=date.today().isoformat(),
         es_admin=es_admin,
         usuario=usuario,
     )
@@ -314,9 +362,11 @@ def mostrar_ventas(
 @router.post("/ventas/registrar")
 def registrar_venta(
     base_price_id: int = Form(..., ge=1),
+    sucursal_id: int = Form(..., ge=1),
     precio_vendido: float = Form(..., gt=0),
     porcentaje_ganancia: int = Form(...),
     numero_vendido: int = Form(..., ge=1),
+    fecha: date = Form(...),
     color_id: int = Form(None, ge=1),
     vendedor_id: int = Form(None, ge=1),
     venta_repo: VentaRepository = Depends(get_venta_repo),
@@ -330,8 +380,8 @@ def registrar_venta(
         raise HTTPException(status_code=400, detail="El porcentaje de comisión no es válido.")
     try:
         venta_repo.registrar_venta(
-            vendedor_id, base_price_id, precio_vendido, porcentaje_ganancia,
-            numero_vendido, color_id
+            vendedor_id, sucursal_id, base_price_id, precio_vendido, porcentaje_ganancia,
+            numero_vendido, color_id, fecha
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
@@ -383,7 +433,6 @@ def registrar_pago_vendedor(
 
 @router.post("/vendedores/agregar")
 def agregar_vendedor(
-    id: int = Form(..., ge=1),
     code: int = Form(..., ge=1),
     nombre: str = Form(...),
     estado_id: int = Form(...),
@@ -393,8 +442,8 @@ def agregar_vendedor(
     if estado_id not in (1, 2):
         raise HTTPException(status_code=400, detail="El estado seleccionado no es válido.")
     base_repo.execute_query(
-        "INSERT INTO seller (id, name, code, state_id) VALUES (%s, %s, %s, %s)",
-        (id, nombre, code, estado_id)
+        "INSERT INTO seller (name, code, state_id) VALUES ( %s, %s, %s)",
+        ( nombre, code, estado_id)
     )
     return RedirectResponse(url="/formularios", status_code=303)
 
@@ -488,16 +537,117 @@ def agregar_producto(
             precio_sugerido, estado_id
         ),
     )
-    if color_ids:
-        base_repo.execute_query(
-            """
-            INSERT INTO product_colors (product_id, color_id)
-            SELECT %s, selected.color_id FROM unnest(%s::int[]) AS selected(color_id)
-            ON CONFLICT DO NOTHING
-            """,
-            (product_id, color_ids),
-        )
+    base_repo.reemplazar_colores_producto(product_id, color_ids)
     return RedirectResponse(url="/formularios", status_code=303)
+
+@router.post("/colores/agregar")
+def agregar_color(
+    nombre: str = Form(..., min_length=1, max_length=100),
+    base_repo: BaseRepository = Depends(get_base_repo),
+    usuario=Depends(administrador_actual),
+):
+    nombre = nombre.strip()
+    if not nombre:
+        raise HTTPException(status_code=400, detail="El nombre del color es obligatorio.")
+    if base_repo.execute_query(
+        "SELECT id FROM colors WHERE lower(name) = lower(%s)",
+        (nombre,),
+        fetch=True,
+    ):
+        raise HTTPException(status_code=409, detail="Ya existe un color con ese nombre.")
+    base_repo.execute_query(
+        "INSERT INTO colors (name) VALUES (%s)",
+        (nombre,),
+    )
+    return RedirectResponse(url="/formularios#colores", status_code=303)
+
+@router.post("/colores/modificar")
+def modificar_color(
+    color_id: int = Form(..., ge=1),
+    nombre: str = Form(..., min_length=1, max_length=100),
+    base_repo: BaseRepository = Depends(get_base_repo),
+    usuario=Depends(administrador_actual),
+):
+    nombre = nombre.strip()
+    if not nombre:
+        raise HTTPException(status_code=400, detail="El nombre del color es obligatorio.")
+    if base_repo.execute_query(
+        "SELECT id FROM colors WHERE lower(name) = lower(%s) AND id <> %s",
+        (nombre, color_id),
+        fetch=True,
+    ):
+        raise HTTPException(status_code=409, detail="Ya existe un color con ese nombre.")
+    actualizado = base_repo.execute_query(
+        "UPDATE colors SET name = %s WHERE id = %s RETURNING id",
+        (nombre, color_id),
+        fetch=True,
+    )
+    if not actualizado:
+        raise HTTPException(status_code=404, detail="No se encontró el color.")
+    return RedirectResponse(url="/formularios#colores", status_code=303)
+
+@router.post("/productos/asignar-colores")
+def asignar_colores_producto(
+    producto_id: int = Form(..., ge=1),
+    color_ids: list[int] = Form([]),
+    talla_letra: str = Form(""),
+    precio_base: str = Form(""),
+    precio_descuento: str = Form(""),
+    precio_sugerido: str = Form(""),
+    base_repo: BaseRepository = Depends(get_base_repo),
+    usuario=Depends(administrador_actual),
+):
+    color_ids = sorted(set(color_ids))
+    if not base_repo.execute_query(
+        "SELECT id FROM products WHERE id = %s",
+        (producto_id,),
+        fetch=True,
+    ):
+        raise HTTPException(status_code=404, detail="No se encontró el producto.")
+    if color_ids and len(
+        base_repo.execute_query(
+            "SELECT id FROM colors WHERE id = ANY(%s)",
+            (color_ids,),
+            fetch=True,
+        ) or []
+    ) != len(color_ids):
+        raise HTTPException(status_code=400, detail="Uno o más colores seleccionados no existen.")
+    talla_letra = talla_letra.strip().upper() or None
+    precios_ingresados = tuple(
+        precio.strip() for precio in (precio_base, precio_descuento, precio_sugerido)
+    )
+    precios = None
+    if talla_letra is None:
+        if any(precios_ingresados):
+            raise HTTPException(
+                status_code=400,
+                detail="Seleccione una talla para registrar sus precios.",
+            )
+    else:
+        if any(not precio for precio in precios_ingresados):
+            raise HTTPException(
+                status_code=400,
+                detail="Complete el precio base, el precio con descuento y el precio sugerido.",
+            )
+        try:
+            precios = tuple(float(precio) for precio in precios_ingresados)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Los precios ingresados no son válidos.")
+        if any(not math.isfinite(precio) or precio <= 0 for precio in precios):
+            raise HTTPException(status_code=400, detail="Los precios deben ser mayores que cero.")
+        if not base_repo.execute_query(
+            "SELECT label FROM sizes WHERE label = %s AND state_id = 1",
+            (talla_letra,),
+            fetch=True,
+        ):
+            raise HTTPException(status_code=400, detail="La talla seleccionada no está activa.")
+    base_repo.guardar_colores_y_precio_producto(
+        producto_id,
+        color_ids,
+        talla_letra,
+        precios,
+    )
+    return RedirectResponse(url="/formularios#asignar-colores", status_code=303)
 
 @router.post("/productos/modificar")
 def modificar_producto(

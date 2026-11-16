@@ -4,24 +4,29 @@ class VentaRepository(BaseRepository):
     def registrar_venta(
         self,
         vendedor_id: int,
+        sucursal_id: int,
         base_price_id: int,
         precio_vendido: float,
         porcentaje_ganancia: int,
         numero_vendido: int,
         color_id: int = None,
+        fecha=None,
     ):
         query = """
             INSERT INTO sales (
-                seller_id, product_id, color_id, quantity_sold, number_sold, historical_base_price,
-                sale_price, commission, base_price_id
+                seller_id, branch_id, product_id, color_id, quantity_sold, number_sold, historical_base_price,
+                sale_price, commission, base_price_id, created_at
             )
-            SELECT %s, p.id, %s, 1, %s, bp.cost_without_discount, %s, %s, bp.id
-            FROM base_price bp
+            SELECT %s, branch.id, p.id, %s, 1, %s, bp.cost_without_discount, %s, %s, bp.id,
+                   COALESCE(%s, CURRENT_DATE)
+            FROM branches branch
+            JOIN base_price bp ON bp.id = %s
             JOIN products p ON p.id = bp.product_id
             JOIN sizes size ON size.label = bp.size_label
             JOIN companies company ON company.id = p.company_id
             JOIN seller ON seller.id = %s
-            WHERE bp.id = %s
+            WHERE branch.id = %s
+                AND branch.state_id = 1
                 AND bp.state_id = 1
                 AND p.state_id = 1
                 AND size.state_id = 1
@@ -44,14 +49,15 @@ class VentaRepository(BaseRepository):
             query,
             (
                 vendedor_id, color_id, numero_vendido, precio_vendido,
-                porcentaje_ganancia, vendedor_id, base_price_id,
+                porcentaje_ganancia, fecha, base_price_id, vendedor_id,
+                sucursal_id,
                 numero_vendido, color_id, color_id,
             ),
             fetch=True
         )
         if not result:
             raise ValueError(
-                "No se pudo registrar la venta. Verifique el vendedor, el producto, el color seleccionado y el rango de talla."
+                "No se pudo registrar la venta. Verifique el vendedor, la sucursal, el producto, el color seleccionado y el rango de talla."
             )
 
     def obtener_reporte_ganancias(

@@ -55,11 +55,21 @@ def init_db():
         """,
         """
         CREATE TABLE IF NOT EXISTS seller (
-            id INT PRIMARY KEY,
+            id SERIAL PRIMARY KEY,
             name VARCHAR(100) NOT NULL,
             code INT NOT NULL,
             state_id INT NOT NULL DEFAULT 1 REFERENCES states(id)
         )
+        """,
+        """
+        CREATE SEQUENCE IF NOT EXISTS seller_id_seq
+        """,
+        """
+        ALTER SEQUENCE seller_id_seq OWNED BY seller.id
+        """,
+        """
+        ALTER TABLE seller
+        ALTER COLUMN id SET DEFAULT nextval('seller_id_seq')
         """,
         """
         CREATE TABLE IF NOT EXISTS app_users (
@@ -127,9 +137,18 @@ def init_db():
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS branches (
+            id SERIAL PRIMARY KEY,
+            code VARCHAR(20) NOT NULL UNIQUE,
+            description VARCHAR(100) NOT NULL,
+            state_id INT NOT NULL DEFAULT 1 REFERENCES states(id)
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS sales (
             id SERIAL PRIMARY KEY,
             seller_id INT NOT NULL REFERENCES seller(id),
+            branch_id INT REFERENCES branches(id),
             product_id INT NOT NULL REFERENCES products(id),
             color_id INT REFERENCES colors(id),
             quantity_sold INT NOT NULL,
@@ -140,6 +159,10 @@ def init_db():
             base_price_id INT REFERENCES base_price(id),
             created_at DATE DEFAULT CURRENT_DATE
         )
+        """,
+        """
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS branch_id INT REFERENCES branches(id)
         """,
         """
         ALTER TABLE sales
@@ -216,6 +239,19 @@ def init_db():
                 """,
                 (2, "Inactivo", "general", "Registro inactivo")
             )
+            cursor.executemany(
+                """
+                INSERT INTO branches (code, description)
+                VALUES (%s, %s)
+                ON CONFLICT (code)
+                DO UPDATE SET description = EXCLUDED.description
+                """,
+                [
+                    ("A", "Puesto Arriba"),
+                    ("B", "Puesto Esquina"),
+                    ("C", "Puesto Salida"),
+                ],
+            )
             sizes_base = [
                 ('A', 20, 26), ('B', 27, 32), ('C', 33, 36), ('D', 37, 43),
                 ('E', 16, 21), ('F', 19, 26), ('G', 5, 12), ('H', 34, 43),
@@ -245,6 +281,16 @@ def init_db():
                 "INSERT INTO seller (id, name, code) VALUES (%s, %s, %s) "
                 "ON CONFLICT (id) DO NOTHING",
                 (1, "Brandon Soria", 1)
+            )
+            cursor.execute(
+                """
+                SELECT setval(
+                    pg_get_serial_sequence('seller', 'id'),
+                    COALESCE(MAX(id), 1),
+                    MAX(id) IS NOT NULL
+                )
+                FROM seller
+                """
             )
 
             companies_base = ["Kanguro", "Dicalsa", "Coban", "Roy", "Dibercati"]

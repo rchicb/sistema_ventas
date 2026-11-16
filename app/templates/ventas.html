@@ -43,9 +43,23 @@
                             <div class="alert alert-info">Vendedor: {{ vendedores[0][1] }} (código {{ vendedores[0][2] }})</div>
                             {% endif %}
                             <div class="mb-3">
+                                <label for="sucursal_id" class="form-label">Sucursal</label>
+                                <select id="sucursal_id" name="sucursal_id" class="form-select" required>
+                                    <option value="">Seleccione una sucursal</option>
+                                    {% for sucursal in sucursales %}
+                                    <option value="{{ sucursal[0] }}">{{ sucursal[1] }} - {{ sucursal[2] }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="fecha" class="form-label">Fecha de venta</label>
+                                <input type="date" id="fecha" name="fecha" class="form-control"
+                                       value="{{ fecha_hoy }}" required>
+                            </div>
+                            <div class="mb-3">
                                 <label for="producto_busqueda" class="form-label">Buscar producto</label>
                                 <input type="search" id="producto_busqueda" class="form-control mb-2"
-                                       placeholder="Buscar por empresa, código o talla..." autocomplete="off">
+                                       placeholder="Buscar por empresa, código, descripción o talla..." autocomplete="off">
                                 <label for="producto_select" class="form-label">Seleccionar producto</label>
                                 <select id="producto_select" name="base_price_id" class="form-select" required>
                                     {% for p in productos %}
