@@ -231,13 +231,13 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0">
                     <thead class="table-light">
-                        <tr><th>ID</th><th>Fecha</th>{% if es_admin %}<th>Vendedor</th>{% endif %}<th>Empresa/Código</th><th>Talla</th><th>Color</th>{% if es_admin %}<th>Costo Base</th>{% endif %}<th>Precio Venta</th><th>Comisión Vdr</th>{% if es_admin %}<th>Utilidad Neta</th><th>Acciones</th>{% endif %}</tr>
+                        <tr><th>Fecha</th>{% if es_admin %}<th>Vendedor</th>{% endif %}<th>Código</th><th>Talla</th><th>Color</th>{% if es_admin %}<th>Costo Base</th>{% endif %}<th>Precio Venta</th><th>Comisión Vdr</th>{% if es_admin %}<th>Utilidad Neta</th><th>Acciones</th>{% endif %}</tr>
                     </thead>
                     <tbody>
                         {% for v in ventas %}
                         <tr>
-                            <td>{{ v.id }}</td><td>{{ v.fecha }}</td>{% if es_admin %}<td>{{ v.vendedor }}</td>{% endif %}
-                            <td>{{ v.empresa }} - {{ v.codigo }}</td>
+                            <td>{{ v.fecha }}</td>{% if es_admin %}<td>{{ v.vendedor }}</td>{% endif %}
+                            <td>{{ v.codigo }}</td>
                             <td><span class="badge bg-secondary">{{ v.talla }}</span></td>
                             <td>{{ v.color or "-" }}</td>
                             {% if es_admin %}<td>GTQ{{ "%.2f"|format(v.base) }}</td>{% endif %}

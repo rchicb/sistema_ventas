@@ -75,7 +75,7 @@ class VentaRepository(BaseRepository):
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         query = f"""
             SELECT 
-                s.id, seller.name, c.name, p.code, bp.size_label, colors.name,
+                s.id, seller.name, c.name,p.code, s.number_sold, colors.name,
                 s.historical_base_price, s.sale_price, s.commission, s.created_at
             FROM sales s
             JOIN seller ON s.seller_id = seller.id
