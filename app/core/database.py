@@ -173,21 +173,8 @@ def init_db():
         ADD COLUMN IF NOT EXISTS number_sold INT NOT NULL DEFAULT 0
         """,
         """
-        DO $$
-        BEGIN
-            IF EXISTS (
-                SELECT 1
-                FROM information_schema.columns
-                WHERE table_schema = current_schema()
-                  AND table_name = 'sales'
-                  AND column_name = 'numero_vendido'
-            ) THEN
-                UPDATE sales
-                SET number_sold = numero_vendido
-                WHERE number_sold = 0 AND numero_vendido <> 0;
-            END IF;
-        END;
-        $$
+        ALTER TABLE sales
+        DROP COLUMN IF EXISTS numero_vendido
         """,
         """
         CREATE TABLE IF NOT EXISTS daily_expenses (

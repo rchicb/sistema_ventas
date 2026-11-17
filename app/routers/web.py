@@ -26,6 +26,19 @@ GASTOS_CATEGORIAS = (
 def get_venta_repo(): return VentaRepository()
 def get_base_repo(): return BaseRepository()
 
+def url_reporte_ventas(fecha=None, mes=None, semana=None, vendedor_id=None):
+    filtros = {
+        nombre: valor
+        for nombre, valor in (
+            ("fecha", fecha),
+            ("mes", mes),
+            ("semana", semana),
+            ("vendedor_id", vendedor_id),
+        )
+        if valor not in (None, "")
+    }
+    return f"/?{urlencode(filtros)}" if filtros else "/"
+
 @router.get("/")
 def dashboard(
     request: Request,
@@ -86,7 +99,7 @@ def dashboard(
     for item in raw_ventas:
         (
             v_id, v_nombre, p_empresa, p_codigo, p_talla, p_color, p_base, p_vendido,
-            porc_comision, fecha_venta, numero_vendido
+            porc_comision, fecha_venta
         ) = item
         
         p_base = float(p_base)
@@ -104,7 +117,7 @@ def dashboard(
             "id": v_id, "vendedor": v_nombre, "empresa": p_empresa, "codigo": p_codigo,
             "talla": p_talla, "color": p_color, "base": p_base,
             "vendido": p_vendido, "comision": comision,
-            "utilidad": utilidad, "fecha": fecha_venta, "numero_vendido": numero_vendido
+            "utilidad": utilidad, "fecha": fecha_venta
         })
 
     if es_admin:
@@ -321,8 +334,7 @@ def mostrar_ventas(
         SELECT bp.id, c.name, p.code,
                ' [' || s.start_number || ' - ' || s.end_number || ' ]',
                bp.cost_without_discount, bp.cost_with_discount,
-               bp.sale_price_suggested, s.start_number, s.end_number,
-               p.id, p.description
+               bp.sale_price_suggested, p.id, p.description
         FROM products p
         JOIN companies c ON c.id = p.company_id
         JOIN base_price bp ON bp.product_id = p.id
@@ -359,13 +371,105 @@ def mostrar_ventas(
     )
     return HTMLResponse(content=html_content)
 
+@router.get("/ventas/{venta_id}/editar")
+def mostrar_editar_venta(
+    venta_id: int,
+    request: Request,
+    fecha: str = "",
+    mes: str = "",
+    semana: str = "",
+    vendedor_id: int = None,
+    venta_repo: VentaRepository = Depends(get_venta_repo),
+    base_repo: BaseRepository = Depends(get_base_repo),
+    usuario=Depends(administrador_actual),
+):
+    venta = venta_repo.obtener_venta_para_editar(venta_id)
+    if not venta:
+        raise HTTPException(status_code=404, detail="No se encontró la venta.")
+
+    vendedores = base_repo.execute_query(
+        "SELECT id, name, code FROM seller WHERE state_id = 1 OR id = %s ORDER BY name",
+        (venta[1],),
+        fetch=True,
+    ) or []
+    sucursales = base_repo.execute_query(
+        """
+        SELECT id, code, description FROM branches
+        WHERE state_id = 1 OR id = %s
+        ORDER BY code
+        """,
+        (venta[2],),
+        fetch=True,
+    ) or []
+    productos = base_repo.execute_query(
+        """
+        SELECT bp.id, p.id, c.name, p.code, bp.size_label, p.description,
+               bp.cost_without_discount, s.start_number, s.end_number
+        FROM base_price bp
+        JOIN products p ON p.id = bp.product_id
+        JOIN companies c ON c.id = p.company_id
+        JOIN sizes s ON s.label = bp.size_label
+        WHERE (
+            bp.state_id = 1 AND p.state_id = 1
+            AND c.state_id = 1 AND s.state_id = 1
+        ) OR bp.id = %s
+        ORDER BY c.name, p.code, bp.size_label
+        """,
+        (venta[10],),
+        fetch=True,
+    ) or []
+    relaciones_colores = base_repo.execute_query(
+        """
+        SELECT pc.product_id, colors.id, colors.name
+        FROM product_colors pc
+        JOIN colors ON colors.id = pc.color_id
+        ORDER BY colors.name
+        """,
+        fetch=True,
+    ) or []
+    colores_por_producto = {}
+    for product_id, color_id, nombre_color in relaciones_colores:
+        colores_por_producto.setdefault(product_id, []).append(
+            {"id": color_id, "name": nombre_color}
+        )
+    if venta[4] is not None and not any(
+        color["id"] == venta[4]
+        for color in colores_por_producto.get(venta[3], [])
+    ):
+        color_actual = base_repo.execute_query(
+            "SELECT id, name FROM colors WHERE id = %s",
+            (venta[4],),
+            fetch=True,
+        )
+        if color_actual:
+            colores_por_producto.setdefault(venta[3], []).append(
+                {"id": color_actual[0][0], "name": color_actual[0][1]}
+            )
+
+    html_content = templates.env.get_template("editar_venta.html").render(
+        request=request,
+        venta=venta,
+        vendedores=vendedores,
+        sucursales=sucursales,
+        productos=productos,
+        colores_por_producto=colores_por_producto,
+        url_retorno=url_reporte_ventas(fecha, mes, semana, vendedor_id),
+        filtros_reporte={
+            "fecha": fecha,
+            "mes": mes,
+            "semana": semana,
+            "vendedor_id": vendedor_id or "",
+        },
+        usuario=usuario,
+    )
+    return HTMLResponse(content=html_content)
+
 @router.post("/ventas/registrar")
 def registrar_venta(
     base_price_id: int = Form(..., ge=1),
     sucursal_id: int = Form(..., ge=1),
     precio_vendido: float = Form(..., gt=0),
     porcentaje_ganancia: int = Form(...),
-    numero_vendido: int = Form(..., ge=1),
     fecha: date = Form(...),
     color_id: int = Form(None, ge=1),
     vendedor_id: int = Form(None, ge=1),
@@ -376,16 +480,53 @@ def registrar_venta(
         vendedor_id = usuario["seller_id"]
     elif vendedor_id is None:
         raise HTTPException(status_code=400, detail="Debe seleccionar un vendedor.")
-    if porcentaje_ganancia not in (5, 10, 15, 20):
+    if porcentaje_ganancia not in (0, 5, 10, 15, 20):
         raise HTTPException(status_code=400, detail="El porcentaje de comisión no es válido.")
     try:
         venta_repo.registrar_venta(
             vendedor_id, sucursal_id, base_price_id, precio_vendido, porcentaje_ganancia,
-            numero_vendido, color_id, fecha
+            color_id, fecha
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
     return RedirectResponse(url="/", status_code=303)
+
+@router.post("/ventas/{venta_id}/modificar")
+def modificar_venta(
+    venta_id: int,
+    vendedor_id: int = Form(..., ge=1),
+    sucursal_id: int = Form(..., ge=1),
+    base_price_id: int = Form(..., ge=1),
+    cantidad_vendida: int = Form(..., ge=1),
+    numero_vendido: int = Form(..., ge=0),
+    precio_base: float = Form(..., gt=0),
+    precio_vendido: float = Form(..., gt=0),
+    porcentaje_ganancia: int = Form(...),
+    fecha: date = Form(...),
+    color_id: int = Form(None, ge=1),
+    reporte_fecha: str = Form(""),
+    reporte_mes: str = Form(""),
+    reporte_semana: str = Form(""),
+    reporte_vendedor_id: int = Form(None, ge=1),
+    venta_repo: VentaRepository = Depends(get_venta_repo),
+    usuario=Depends(administrador_actual),
+):
+    if porcentaje_ganancia not in (0, 5, 10, 15, 20):
+        raise HTTPException(status_code=400, detail="El porcentaje de comisión no es válido.")
+    try:
+        venta_repo.actualizar_venta(
+            venta_id, vendedor_id, sucursal_id, base_price_id, color_id,
+            cantidad_vendida, numero_vendido, precio_base, precio_vendido,
+            porcentaje_ganancia, fecha,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    return RedirectResponse(
+        url=url_reporte_ventas(
+            reporte_fecha, reporte_mes, reporte_semana, reporte_vendedor_id
+        ),
+        status_code=303,
+    )
 
 @router.post("/gastos/registrar")
 def registrar_gasto(

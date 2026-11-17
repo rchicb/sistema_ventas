@@ -8,16 +8,15 @@ class VentaRepository(BaseRepository):
         base_price_id: int,
         precio_vendido: float,
         porcentaje_ganancia: int,
-        numero_vendido: int,
         color_id: int = None,
         fecha=None,
     ):
         query = """
             INSERT INTO sales (
-                seller_id, branch_id, product_id, color_id, quantity_sold, number_sold, historical_base_price,
+                seller_id, branch_id, product_id, color_id, quantity_sold, historical_base_price,
                 sale_price, commission, base_price_id, created_at
             )
-            SELECT %s, branch.id, p.id, %s, 1, %s, bp.cost_without_discount, %s, %s, bp.id,
+            SELECT %s, branch.id, p.id, %s, 1, bp.cost_without_discount, %s, %s, bp.id,
                    COALESCE(%s, CURRENT_DATE)
             FROM branches branch
             JOIN base_price bp ON bp.id = %s
@@ -32,7 +31,6 @@ class VentaRepository(BaseRepository):
                 AND size.state_id = 1
                 AND company.state_id = 1
                 AND seller.state_id = 1
-                AND %s BETWEEN size.start_number AND size.end_number
                 AND (
                     (%s IS NULL AND NOT EXISTS (
                         SELECT 1 FROM product_colors pc
@@ -48,10 +46,10 @@ class VentaRepository(BaseRepository):
         result = self.execute_query(
             query,
             (
-                vendedor_id, color_id, numero_vendido, precio_vendido,
+                vendedor_id, color_id, precio_vendido,
                 porcentaje_ganancia, fecha, base_price_id, vendedor_id,
                 sucursal_id,
-                numero_vendido, color_id, color_id,
+                color_id, color_id,
             ),
             fetch=True
         )
@@ -78,8 +76,7 @@ class VentaRepository(BaseRepository):
         query = f"""
             SELECT 
                 s.id, seller.name, c.name, p.code, bp.size_label, colors.name,
-                s.historical_base_price, s.sale_price, s.commission, s.created_at,
-                s.number_sold AS numero_vendido
+                s.historical_base_price, s.sale_price, s.commission, s.created_at
             FROM sales s
             JOIN seller ON s.seller_id = seller.id
             JOIN products p ON s.product_id = p.id
@@ -90,6 +87,93 @@ class VentaRepository(BaseRepository):
             ORDER BY s.created_at DESC, s.id DESC
         """
         return self.execute_query(query, tuple(params), fetch=True)
+
+    def obtener_venta_para_editar(self, venta_id: int):
+        result = self.execute_query(
+            """
+            SELECT id, seller_id, branch_id, product_id, color_id, quantity_sold,
+                   number_sold, historical_base_price, sale_price, commission,
+                   base_price_id, created_at
+            FROM sales
+            WHERE id = %s
+            """,
+            (venta_id,),
+            fetch=True,
+        )
+        return result[0] if result else None
+
+    def actualizar_venta(
+        self,
+        venta_id: int,
+        vendedor_id: int,
+        sucursal_id: int,
+        base_price_id: int,
+        color_id: int,
+        cantidad_vendida: int,
+        numero_vendido: int,
+        precio_base: float,
+        precio_vendido: float,
+        comision: int,
+        fecha,
+    ):
+        result = self.execute_query(
+            """
+            UPDATE sales AS sale
+            SET seller_id = seller.id,
+                branch_id = branch.id,
+                product_id = p.id,
+                color_id = %s,
+                quantity_sold = %s,
+                number_sold = %s,
+                historical_base_price = %s,
+                sale_price = %s,
+                commission = %s,
+                base_price_id = bp.id,
+                created_at = %s
+            FROM seller
+            JOIN branches branch ON branch.id = %s
+            JOIN base_price bp ON bp.id = %s
+            JOIN products p ON p.id = bp.product_id
+            JOIN sizes size ON size.label = bp.size_label
+            JOIN companies company ON company.id = p.company_id
+            WHERE sale.id = %s
+                AND seller.id = %s
+                AND (branch.state_id = 1 OR sale.branch_id = branch.id)
+                AND (bp.state_id = 1 OR sale.base_price_id = bp.id)
+                AND (p.state_id = 1 OR sale.product_id = p.id)
+                AND (size.state_id = 1 OR sale.base_price_id = bp.id)
+                AND (company.state_id = 1 OR sale.product_id = p.id)
+                AND (seller.state_id = 1 OR sale.seller_id = seller.id)
+                AND (
+                    (%s IS NULL AND NOT EXISTS (
+                        SELECT 1 FROM product_colors pc
+                        WHERE pc.product_id = p.id
+                    ))
+                    OR EXISTS (
+                        SELECT 1 FROM product_colors pc
+                        WHERE pc.product_id = p.id AND pc.color_id = %s
+                    )
+                    OR (sale.product_id = p.id AND sale.color_id = %s)
+                )
+                AND (
+                    %s = 0
+                    OR %s BETWEEN size.start_number AND size.end_number
+                )
+            RETURNING sale.id
+            """,
+            (
+                color_id, cantidad_vendida, numero_vendido, precio_base,
+                precio_vendido, comision, fecha, sucursal_id, base_price_id,
+                venta_id, vendedor_id, color_id, color_id, color_id,
+                numero_vendido, numero_vendido,
+            ),
+            fetch=True,
+        )
+        if not result:
+            raise ValueError(
+                "No se pudo modificar la venta. Verifique los datos, el vendedor, "
+                "la sucursal, el producto, el color y el rango de talla."
+            )
 
     def obtener_gastos(self, fecha_inicio=None, fecha_fin=None):
         conditions = []
