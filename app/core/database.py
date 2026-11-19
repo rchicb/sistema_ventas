@@ -55,11 +55,40 @@ def init_db():
         """,
         """
         CREATE TABLE IF NOT EXISTS seller (
-            id INT PRIMARY KEY,
+            id SERIAL PRIMARY KEY,
             name VARCHAR(100) NOT NULL,
             code INT NOT NULL,
             state_id INT NOT NULL DEFAULT 1 REFERENCES states(id)
         )
+        """,
+        """
+        CREATE SEQUENCE IF NOT EXISTS seller_id_seq
+        """,
+        """
+        ALTER SEQUENCE seller_id_seq OWNED BY seller.id
+        """,
+        """
+        ALTER TABLE seller
+        ALTER COLUMN id SET DEFAULT nextval('seller_id_seq')
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS app_users (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(80) NOT NULL,
+            password_hash VARCHAR(255) NOT NULL,
+            role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'vendedor')),
+            seller_id INT UNIQUE REFERENCES seller(id),
+            state_id INT NOT NULL DEFAULT 1 REFERENCES states(id),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK (
+                (role = 'admin' AND seller_id IS NULL)
+                OR (role = 'vendedor' AND seller_id IS NOT NULL)
+            )
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_lower_idx
+        ON app_users (lower(username))
         """,
         """
         CREATE TABLE IF NOT EXISTS companies (
@@ -73,8 +102,26 @@ def init_db():
             id SERIAL PRIMARY KEY,
             company_id INT NOT NULL REFERENCES companies(id) ON DELETE RESTRICT,
             code VARCHAR(50) NOT NULL,
+            description VARCHAR(100) NOT NULL DEFAULT '',
             state_id INT NOT NULL DEFAULT 1 REFERENCES states(id),
             UNIQUE (company_id, code)
+        )
+        """,
+        """
+        ALTER TABLE products
+        ADD COLUMN IF NOT EXISTS description VARCHAR(100) NOT NULL DEFAULT ''
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS colors (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100) NOT NULL UNIQUE
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS product_colors (
+            product_id INT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            color_id INT NOT NULL REFERENCES colors(id) ON DELETE RESTRICT,
+            PRIMARY KEY (product_id, color_id)
         )
         """,
         """
@@ -90,16 +137,68 @@ def init_db():
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS branches (
+            id SERIAL PRIMARY KEY,
+            code VARCHAR(20) NOT NULL UNIQUE,
+            description VARCHAR(100) NOT NULL,
+            state_id INT NOT NULL DEFAULT 1 REFERENCES states(id)
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS sales (
             id SERIAL PRIMARY KEY,
             seller_id INT NOT NULL REFERENCES seller(id),
+            branch_id INT REFERENCES branches(id),
             product_id INT NOT NULL REFERENCES products(id),
+            color_id INT REFERENCES colors(id),
             quantity_sold INT NOT NULL,
+            number_sold INT NOT NULL DEFAULT 0,
             historical_base_price NUMERIC(10, 2) NOT NULL,
             sale_price NUMERIC(10, 2) NOT NULL,
             commission INT NOT NULL,
             base_price_id INT REFERENCES base_price(id),
             created_at DATE DEFAULT CURRENT_DATE
+        )
+        """,
+        """
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS branch_id INT REFERENCES branches(id)
+        """,
+        """
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS color_id INT REFERENCES colors(id)
+        """,
+        """
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS number_sold INT NOT NULL DEFAULT 0
+        """,
+        """
+        ALTER TABLE sales
+        DROP COLUMN IF EXISTS numero_vendido
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS daily_expenses (
+            id SERIAL PRIMARY KEY,
+            expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            category VARCHAR(30) NOT NULL CHECK (
+                category IN (
+                    'Comida', 'Refacciones', 'Tortillas', 'Frescos',
+                    'Desayuno', 'Almuerzo', 'Pan', 'Pago Bodega', 'Pago Puestos', 'Otros gastos varios'
+                )
+            ),
+            description VARCHAR(200),
+            amount NUMERIC(10, 2) NOT NULL CHECK (amount >= 0),
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS seller_payments (
+            id SERIAL PRIMARY KEY,
+            seller_id INT NOT NULL REFERENCES seller(id),
+            payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            amount NUMERIC(10, 2) NOT NULL CHECK (amount >= 0),
+            notes VARCHAR(200),
+            UNIQUE (seller_id, payment_date)
         )
         """,
     ]
@@ -119,6 +218,27 @@ def init_db():
                 """,
                 (1, "Activo", "general", "Registro activo")
             )
+            cursor.execute(
+                """
+                INSERT INTO states (id, name, module, description)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (2, "Inactivo", "general", "Registro inactivo")
+            )
+            cursor.executemany(
+                """
+                INSERT INTO branches (code, description)
+                VALUES (%s, %s)
+                ON CONFLICT (code)
+                DO UPDATE SET description = EXCLUDED.description
+                """,
+                [
+                    ("A", "Puesto Arriba"),
+                    ("B", "Puesto Esquina"),
+                    ("C", "Puesto Salida"),
+                ],
+            )
             sizes_base = [
                 ('A', 20, 26), ('B', 27, 32), ('C', 33, 36), ('D', 37, 43),
                 ('E', 16, 21), ('F', 19, 26), ('G', 5, 12), ('H', 34, 43),
@@ -132,10 +252,32 @@ def init_db():
                 """,
                 sizes_base
             )
+            colors_base = [
+                "Negro liso", "Negro Nubock", "Blanco", "Azul", "Cafe",
+                "Arena", "Hongo", "Amarillo", "Cafe Graso", "Cocoa",
+                "Blanco/Lila",
+            ]
+            cursor.executemany(
+                """
+                INSERT INTO colors (name) VALUES (%s)
+                ON CONFLICT (name) DO NOTHING
+                """,
+                [(name,) for name in colors_base],
+            )
             cursor.execute(
                 "INSERT INTO seller (id, name, code) VALUES (%s, %s, %s) "
                 "ON CONFLICT (id) DO NOTHING",
                 (1, "Brandon Soria", 1)
+            )
+            cursor.execute(
+                """
+                SELECT setval(
+                    pg_get_serial_sequence('seller', 'id'),
+                    COALESCE(MAX(id), 1),
+                    MAX(id) IS NOT NULL
+                )
+                FROM seller
+                """
             )
 
             companies_base = ["Kanguro", "Dicalsa", "Coban", "Roy", "Dibercati"]

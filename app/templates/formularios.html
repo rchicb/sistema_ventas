@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Administración e Ingresos</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/mobile-forms.css" rel="stylesheet">
 </head>
 <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
@@ -12,77 +13,18 @@
             <a class="navbar-brand" href="/">Sistema Ventas (SOLID)</a>
             <div class="navbar-nav">
                 <a class="nav-link" href="/">Dashboard</a>
+                <a class="nav-link" href="/ventas">Registrar ventas</a>
                 <a class="nav-link active" href="/formularios">Administración y Catálogos</a>
+            </div>
+            <div class="d-flex align-items-center gap-3 text-white">
+                <span>{{ usuario["username"] }} · {{ "Administrador" if es_admin else "Vendedor" }}</span>
+                <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
             </div>
         </div>
     </nav>
     <div class="container mb-5">
         <div class="row g-4">
-            <!-- Registrar Venta -->
-            <div class="col-12 col-lg-6">
-                <div class="card shadow-sm h-100">
-                    <div class="card-header bg-primary text-white">
-                        <h5 class="mb-0">Ingresar Nueva Venta</h5>
-                    </div>
-                    <div class="card-body">
-                        <form action="/ventas/registrar" method="POST">
-                            <div class="mb-3">
-                                <label class="form-label">Seleccionar Vendedor</label>
-                                <select name="vendedor_id" class="form-select" required>
-                                    {% for v in vendedores %}
-                                    <option value="{{ v[0] }}">{{ v[0] }} - {{ v[1] }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div class="mb-3">
-                                <label for="producto_busqueda" class="form-label">Buscar producto</label>
-                                <input
-                                    type="search"
-                                    id="producto_busqueda"
-                                    class="form-control mb-2"
-                                    placeholder="Buscar por empresa, código o talla..."
-                                    autocomplete="off"
-                                >
-                                <label for="producto_select" class="form-label">Seleccionar Opcion Producto</label>
-                                <select id="producto_select" name="base_price_id" class="form-select" required onchange="calcularSugeridos()">
-                                    {% for p in productos %}
-                                    <option value="{{ p[0] }}" data-base="{{ p[4] }}" data-suggested="{{ p[6] }}" >
-                                        {{ p[1] }} {{ p[2] }} {{ p[3] }} [Costo: GTQ {{ p[4] }}]</option>
-                                    {% endfor %}
-                                </select>
-                                <small id="producto_busqueda_estado" class="form-text text-muted" aria-live="polite"></small>
-                            </div>
-                            <div class="row g-2 mb-3">
-                                <div class="col-6">
-                                    <label class="form-label">Comisión Vendedor</label>
-                                    <select name="porcentaje_ganancia" class="form-select" required>
-                                        <option value="5">5</option>
-                                        <option value="10">10</option>
-                                        <option value="15">15</option>
-                                        <option value="20">20</option>
-                                    </select>
-                                </div>
-                                <div class="col-6">
-                                    <label class="form-label">Precio Vendido (GTQ)</label>
-                                    <input type="number" step="0.01" name="precio_vendido" id="precio_vendido" class="form-select" placeholder="Monto cobrado" required>
-                                </div>
-                            </div>
-                            <div class="p-3 bg-light rounded mb-3">
-                                <small class="text-muted d-block mb-1">Guía de Precios Sugeridos Comerciales:</small>
-                                <div class="d-flex justify-content-between flex-wrap gap-2 text-dark font-monospace" style="font-size: 0.85rem;">
-                                    <span id="sug_NA">NA%: $0</span>
-                                    <span id="sug_20">20%: $0</span>
-                                    <span id="sug_25">25%: $0</span>
-                                </div>
-                            </div>
-                            <button type="submit" class="btn btn-primary w-100 py-2">Registrar Venta</button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Catálogos rápidos (Acordeón Responsivo) -->
-            <div class="col-12 col-lg-6">
+            <div class="col-12">
                 <div class="accordion shadow-sm" id="catalogosAccordion">
                     <!-- Productos -->
                     <div class="accordion-item">
@@ -94,8 +36,39 @@
                         <div id="collapseProd" class="accordion-collapse collapse show" data-bs-parent="#catalogosAccordion">
                             <div class="accordion-body">
                                 <form action="/productos/agregar" method="POST">
-                                    <div class="mb-2"><input type="text" name="empresa" class="form-control" placeholder="Marca (ej. Kanguro)" required></div>
+                                    <div class="mb-2">
+                                        <label for="empresa_id" class="form-label">Marca</label>
+                                        <select id="empresa_id" name="empresa_id" class="form-select">
+                                            <option value="">+ Agregar nueva marca</option>
+                                            {% for empresa in empresas %}
+                                            <option value="{{ empresa[0] }}">{{ empresa[1] }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div id="nueva-empresa-wrap" class="mb-2">
+                                        <input type="text" id="nueva_empresa" name="nueva_empresa" class="form-control" placeholder="Nombre de la nueva marca">
+                                    </div>
                                     <div class="mb-2"><input type="text" name="codigo" class="form-control" placeholder="Código de Producto" required></div>
+                                    <div class="mb-2">
+                                        <label class="form-label">Descripción (máximo 100 caracteres)</label>
+                                        <input type="text" name="descripcion" maxlength="100" class="form-control">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Colores disponibles</label>
+                                        <div class="border rounded p-2 row row-cols-2 row-cols-md-4 g-2">
+                                            {% for color in colores %}
+                                            <div class="col">
+                                                <label class="form-check">
+                                                    <input class="form-check-input" type="checkbox" name="color_ids" value="{{ color[0] }}">
+                                                    <span class="form-check-label">{{ color[1] }}</span>
+                                                </label>
+                                            </div>
+                                            {% else %}
+                                            <div class="col text-muted">Primero agregue colores al catálogo.</div>
+                                            {% endfor %}
+                                        </div>
+                                        <small class="form-text text-muted">Marque todos los colores que estarán disponibles para este producto.</small>
+                                    </div>
                                     <div class="mb-2">
                                         <select name="talla_letra" class="form-select" required>
                                             {% for t in tallas %}
@@ -103,9 +76,143 @@
                                             {% endfor %}
                                         </select>
                                     </div>
-                                    <div class="mb-2"><input type="number" step="0.01" name="precio_base" class="form-control" placeholder="Precio Costo Base ($)" required></div>
+                                    <div class="mb-2">
+                                        <label class="form-label">Precio base (GTQ)</label>
+                                        <input type="number" min="0.01" step="0.01" name="precio_base" class="form-control" required>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label">Precio con descuento (GTQ)</label>
+                                        <input type="number" min="0.01" step="0.01" name="precio_descuento" class="form-control" required>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label">Precio sugerido (GTQ)</label>
+                                        <input type="number" min="0.01" step="0.01" name="precio_sugerido" class="form-control" required>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label">Estado</label>
+                                        <select name="estado_id" class="form-select" required>
+                                            {% for estado in estados %}<option value="{{ estado[0] }}">{{ estado[1] }}</option>{% endfor %}
+                                        </select>
+                                    </div>
                                     <button type="submit" class="btn btn-dark btn-sm w-100">Guardar Producto</button>
                                 </form>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item" id="colores">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseColores">
+                                Agregar o modificar colores
+                            </button>
+                        </h2>
+                        <div id="collapseColores" class="accordion-collapse collapse" data-bs-parent="#catalogosAccordion">
+                            <div class="accordion-body">
+                                <form action="/colores/agregar" method="POST" class="row g-2 align-items-end mb-3">
+                                    <div class="col-12 col-md-8">
+                                        <label for="nuevo-color" class="form-label">Nombre del nuevo color</label>
+                                        <input id="nuevo-color" type="text" name="nombre" maxlength="100" class="form-control" required>
+                                    </div>
+                                    <div class="col-12 col-md-4">
+                                        <button type="submit" class="btn btn-dark w-100">Agregar color</button>
+                                    </div>
+                                </form>
+                                <div class="row g-2">
+                                    {% for color in colores %}
+                                    <form action="/colores/modificar" method="POST" class="col-12 col-md-6 col-lg-4 d-flex gap-2">
+                                        <input type="hidden" name="color_id" value="{{ color[0] }}">
+                                        <input type="text" name="nombre" maxlength="100" value="{{ color[1] }}" class="form-control" aria-label="Nombre del color {{ color[1] }}" required>
+                                        <button type="submit" class="btn btn-outline-primary">Guardar</button>
+                                    </form>
+                                    {% else %}
+                                    <p class="text-muted mb-0">No hay colores registrados.</p>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item" id="modificacion-productos">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAsignarColores">
+                                Modificación de productos
+                            </button>
+                        </h2>
+                        <div id="collapseAsignarColores" class="accordion-collapse collapse" data-bs-parent="#catalogosAccordion">
+                            <div class="accordion-body">
+                                {% if productos_para_colores %}
+                                <form action="/productos/asignar-colores" method="POST" id="form-asignar-colores"
+                                      data-productos-colores="{{ productos_para_colores | tojson | forceescape }}">
+                                    <div class="mb-3">
+                                        <label for="busqueda-producto-colores" class="form-label">Buscar por empresa, código o descripción</label>
+                                        <input id="busqueda-producto-colores" type="search" class="form-control mb-2"
+                                               placeholder="Nombre de empresa, código o descripción" autocomplete="off">
+                                        <label for="producto-colores" class="form-label">Seleccione el producto</label>
+                                        <select id="producto-colores" name="producto_id" class="form-select" required>
+                                            {% for producto in productos_para_colores %}
+                                            <option value="{{ producto.id }}">{{ producto.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <small id="busqueda-producto-colores-estado" class="form-text text-muted" aria-live="polite"></small>
+                                    </div>
+                                    <details class="border rounded p-3 mb-3">
+                                        <summary>Agregar o actualizar una talla y sus precios (opcional)</summary>
+                                        <p class="form-text text-muted mt-2">
+                                            Se guardará en el producto seleccionado, independientemente de los colores marcados.
+                                            Si la talla ya existe, se actualizarán sus precios.
+                                        </p>
+                                        <div class="row g-2">
+                                            <div class="col-12 col-md-6">
+                                                <label for="talla-producto-colores" class="form-label">Talla</label>
+                                                <select id="talla-producto-colores" name="talla_letra" class="form-select">
+                                                    <option value="">No agregar talla</option>
+                                                    {% for talla in tallas %}
+                                                    <option value="{{ talla[0] }}">Categoría {{ talla[0] }} ({{ talla[1] }})</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div class="col-12 col-md-6">
+                                                <label for="precio-base-producto-colores" class="form-label">Precio base (GTQ)</label>
+                                                <input id="precio-base-producto-colores" type="number" min="0.01" step="0.01"
+                                                       name="precio_base" class="form-control">
+                                            </div>
+                                            <div class="col-12 col-md-6">
+                                                <label for="precio-descuento-producto-colores" class="form-label">Precio con descuento (GTQ)</label>
+                                                <input id="precio-descuento-producto-colores" type="number" min="0.01" step="0.01"
+                                                       name="precio_descuento" class="form-control">
+                                            </div>
+                                            <div class="col-12 col-md-6">
+                                                <label for="precio-sugerido-producto-colores" class="form-label">Precio sugerido (GTQ)</label>
+                                                <input id="precio-sugerido-producto-colores" type="number" min="0.01" step="0.01"
+                                                       name="precio_sugerido" class="form-control">
+                                            </div>
+                                        </div>
+                                    </details>
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <label class="form-label mb-0">Colores disponibles</label>
+                                        <div class="d-flex gap-2">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="seleccionar-todos-colores">Seleccionar todos</button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="limpiar-colores">Limpiar</button>
+                                        </div>
+                                    </div>
+                                    <div class="border rounded p-3 row row-cols-2 row-cols-md-3 row-cols-lg-4 g-2 mb-3" id="colores-asignables">
+                                        {% for color in colores %}
+                                        <div class="col">
+                                            <label class="form-check">
+                                                <input class="form-check-input" type="checkbox" name="color_ids" value="{{ color[0] }}">
+                                                <span class="form-check-label">{{ color[1] }}</span>
+                                            </label>
+                                        </div>
+                                        {% else %}
+                                        <div class="col text-muted">Agregue colores al catálogo para poder asignarlos.</div>
+                                        {% endfor %}
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <small class="text-muted" id="resumen-colores"></small>
+                                        <button type="submit" class="btn btn-primary">Guardar colores del producto</button>
+                                    </div>
+                                </form>
+                                {% else %}
+                                <p class="text-muted mb-0">No hay productos registrados para asignarles colores.</p>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -119,8 +226,15 @@
                         <div id="collapseVend" class="accordion-collapse collapse" data-bs-parent="#catalogosAccordion">
                             <div class="accordion-body">
                                 <form action="/vendedores/agregar" method="POST">
-                                    <div class="mb-2"><input type="number" name="id" class="form-control" placeholder="ID de Vendedor (Int)" required></div>
+                                    <!-- <div class="mb-2"><input type="number" name="id" class="form-control" placeholder="ID de Vendedor (Int)" required></div> -->
+                                    <div class="mb-2"><input type="number" name="code" class="form-control" placeholder="Código de vendedor" required></div>
                                     <div class="mb-2"><input type="text" name="nombre" class="form-control" placeholder="Nombre Completo" required></div>
+                                    <div class="mb-2">
+                                        <label class="form-label">Estado</label>
+                                        <select name="estado_id" class="form-select" required>
+                                            {% for estado in estados %}<option value="{{ estado[0] }}">{{ estado[1] }}</option>{% endfor %}
+                                        </select>
+                                    </div>
                                     <button type="submit" class="btn btn-dark btn-sm w-100">Guardar Vendedor</button>
                                 </form>
                             </div>
@@ -138,6 +252,12 @@
                                 <form action="/tallas/agregar" method="POST">
                                     <div class="mb-2"><input type="text" name="letra" maxlength="1" class="form-control" placeholder="Letra (ej. L)" required></div>
                                     <div class="mb-2"><input type="text" name="rango" class="form-control" placeholder="Rango Numérico (ej. 42 - 46)" required></div>
+                                    <div class="mb-2">
+                                        <label class="form-label">Estado</label>
+                                        <select name="estado_id" class="form-select" required>
+                                            {% for estado in estados %}<option value="{{ estado[0] }}">{{ estado[1] }}</option>{% endfor %}
+                                        </select>
+                                    </div>
                                     <button type="submit" class="btn btn-dark btn-sm w-100">Guardar Talla</button>
                                 </form>
                             </div>
@@ -145,60 +265,301 @@
                     </div>
                 </div>
             </div>
+            <div class="col-12" id="productos">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0">Productos del catálogo (editar registros)</h5>
+                    </div>
+                    <div class="card-body">
+                        <form action="/formularios#productos" method="GET" class="row g-3 align-items-end mb-4">
+                            <div class="col-12 col-md-4">
+                                <label for="marca_filtro" class="form-label">Filtrar por marca</label>
+                                <select id="marca_filtro" name="marca_filtro" class="form-select">
+                                    <option value="">Todas las marcas</option>
+                                    {% for empresa in empresas_catalogo %}
+                                    <option value="{{ empresa[0] }}" {% if empresa[0] == marca_filtro %}selected{% endif %}>{{ empresa[1] }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-12 col-md-4">
+                                <label for="busqueda_filtro" class="form-label">Buscar por empresa, código o descripción</label>
+                                <input id="busqueda_filtro" name="busqueda_filtro" type="search"
+                                       maxlength="100" value="{{ busqueda_filtro }}" class="form-control"
+                                       placeholder="Nombre de empresa, código o descripción">
+                            </div>
+                            <div class="col-12 col-md-4 d-flex gap-2">
+                                <button type="submit" class="btn btn-primary">Buscar productos</button>
+                                <a href="/formularios#productos" class="btn btn-outline-secondary">Limpiar</a>
+                            </div>
+                        </form>
+                        {% if not filtros_catalogo_aplicados %}
+                        <p class="text-muted mb-0">Seleccione una marca o busque por nombre de empresa, código o descripción.</p>
+                        {% elif productos_catalogo %}
+                        <div class="table-responsive">
+                            <table class="table table-sm table-striped align-middle" style="min-width: 1650px;">
+                                <thead>
+                                    <tr>
+                                        <th>Marca</th><th>Código</th><th>Talla</th>
+                                        <th>Descripción</th><th>Colores disponibles</th>
+                                        <th>Precio base</th><th>Precio con descuento</th>
+                                        <th>Precio sugerido</th><th>Estado</th><th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for p in productos_catalogo %}
+                                    <tr>
+                                        <td>
+                                            <select form="producto-{{ p[0] }}" name="empresa_id" class="form-select form-select-sm" required>
+                                                {% for empresa in empresas_catalogo %}
+                                                <option value="{{ empresa[0] }}" {% if empresa[0] == p[2] %}selected{% endif %}>{{ empresa[1] }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </td>
+                                        <td><input form="producto-{{ p[0] }}" name="codigo" maxlength="50" value="{{ p[4] }}" class="form-control form-control-sm" required></td>
+                                        <td>
+                                            <select form="producto-{{ p[0] }}" name="talla_letra" class="form-select form-select-sm" required>
+                                                {% for talla in tallas_catalogo %}
+                                                <option value="{{ talla[0] }}" {% if talla[0] == p[5] %}selected{% endif %}>{{ talla[0] }} ({{ talla[1] }})</option>
+                                                {% endfor %}
+                                            </select>
+                                        </td>
+                                        <td><input form="producto-{{ p[0] }}" name="descripcion" maxlength="100" value="{{ p[12] }}" class="form-control form-control-sm"></td>
+                                        <td>
+                                            <details>
+                                                <summary class="small" data-color-summary>{{ p[13]|length }} seleccionados</summary>
+                                                <div class="border rounded p-2 mt-1" style="min-width: 180px; max-height: 180px; overflow-y: auto;">
+                                                    {% for color in colores %}
+                                                    <label class="form-check">
+                                                        <input form="producto-{{ p[0] }}" class="form-check-input" type="checkbox" name="color_ids" value="{{ color[0] }}" {% if color[0] in p[13] %}checked{% endif %}>
+                                                        <span class="form-check-label">{{ color[1] }}</span>
+                                                    </label>
+                                                    {% else %}
+                                                    <span class="small text-muted">No hay colores registrados.</span>
+                                                    {% endfor %}
+                                                </div>
+                                            </details>
+                                        </td>
+                                        <td><input form="producto-{{ p[0] }}" type="number" min="0.01" step="0.01" name="precio_base" value="{{ p[8] }}" class="form-control form-control-sm" required></td>
+                                        <td><input form="producto-{{ p[0] }}" type="number" min="0.01" step="0.01" name="precio_descuento" value="{{ p[9] }}" class="form-control form-control-sm" required></td>
+                                        <td><input form="producto-{{ p[0] }}" type="number" min="0.01" step="0.01" name="precio_sugerido" value="{{ p[10] }}" class="form-control form-control-sm" required></td>
+                                        <td>
+                                            <select form="producto-{{ p[0] }}" name="estado_id" class="form-select form-select-sm" required>
+                                                {% for estado in estados %}
+                                                <option value="{{ estado[0] }}" {% if estado[0] == p[11] %}selected{% endif %}>{{ estado[1] }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </td>
+                                        <td>
+                                            <form id="producto-{{ p[0] }}" action="/productos/modificar" method="POST">
+                                                <input type="hidden" name="precio_id" value="{{ p[0] }}">
+                                                <input type="hidden" name="producto_id" value="{{ p[1] }}">
+                                                <input type="hidden" name="marca_filtro" value="{{ marca_filtro or '' }}">
+                                                <input type="hidden" name="codigo_filtro" value="{{ codigo_filtro }}">
+                                                <button class="btn btn-sm btn-outline-primary" type="submit">Guardar</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr><td colspan="10" class="text-center text-muted">No hay productos registrados.</td></tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <p class="text-muted mb-0">No se encontraron productos con esos filtros.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                            <div class="accordion shadow-sm" id="usuariosAccordion">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header" id="usuarios">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#usuariosBody">
+                                            Usuarios, roles y estados
+                                        </button>
+                                    </h2>
+                                    <div id="usuariosBody" class="accordion-collapse collapse" data-bs-parent="#usuariosAccordion">
+                                        <div class="accordion-body">
+                                            <form action="/usuarios/agregar" method="POST" class="row g-3 mb-4">
+                                                <div class="col-12 col-md-3">
+                                                    <label class="form-label">Nombre de usuario</label>
+                                                    <input type="text" name="username" minlength="3" maxlength="80" class="form-control" required>
+                                                </div>
+                                                <div class="col-12 col-md-3">
+                                                    <label class="form-label">Contraseña (mínimo 12 caracteres)</label>
+                                                    <input type="password" name="password" minlength="12" maxlength="256" class="form-control" autocomplete="new-password" required>
+                                                </div>
+                                                <div class="col-12 col-md-2">
+                                                    <label class="form-label">Rol</label>
+                                                    <select id="user-role" name="role" class="form-select" required>
+                                                        <option value="vendedor">Vendedor</option>
+                                                        <option value="admin">Administrador</option>
+                                                    </select>
+                                                </div>
+                                                <div class="col-12 col-md-2" id="user-seller-wrap">
+                                                    <label class="form-label">Vendedor relacionado</label>
+                                                    <select name="seller_id" id="user-seller" class="form-select">
+                                                        {% for v in vendedores_disponibles %}
+                                                        <option value="{{ v[0] }}">{{ v[1] }} - {{ v[2] }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+                                                <div class="col-12 col-md-2">
+                                                    <label class="form-label">Estado</label>
+                                                    <select name="estado_id" class="form-select" required>
+                                                        {% for estado in estados %}<option value="{{ estado[0] }}">{{ estado[1] }}</option>{% endfor %}
+                                                    </select>
+                                                </div>
+                                                <div class="col-12"><button class="btn btn-primary" type="submit">Crear usuario</button></div>
+                                            </form>
+                                            <div class="table-responsive">
+                                                <table class="table table-sm table-striped">
+                                                    <thead><tr><th>Usuario</th><th>Rol</th><th>Vendedor</th><th>Estado</th><th></th></tr></thead>
+                                                    <tbody>
+                                                        {% for u in usuarios %}
+                                                        <tr>
+                                                            <td>{{ u[1] }}</td>
+                                                            <td>{{ "Administrador" if u[2] == "admin" else "Vendedor" }}</td>
+                                                            <td>{{ u[3] or "-" }}</td>
+                                                            <td>
+                                                                <select form="estado-usuario-{{ u[0] }}" name="estado_id" class="form-select form-select-sm">
+                                                                    {% for estado in estados %}
+                                                                    <option value="{{ estado[0] }}" {% if estado[0] == u[5] %}selected{% endif %}>{{ estado[1] }}</option>
+                                                                    {% endfor %}
+                                                                </select>
+                                                            </td>
+                                                            <td>
+                                                                <form id="estado-usuario-{{ u[0] }}" action="/usuarios/estado" method="POST">
+                                                                    <input type="hidden" name="usuario_id" value="{{ u[0] }}">
+                                                                    <button class="btn btn-sm btn-outline-primary" type="submit">Guardar</button>
+                                                                </form>
+                                                            </td>
+                                                        </tr>
+                                                        {% else %}
+                                                        <tr><td colspan="5" class="text-muted">No hay usuarios registrados.</td></tr>
+                                                        {% endfor %}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                        </div>
+                            </div>
+                        </div>
+                        </div>
+                </div>
         </div>
-    </div>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        const productoSelect = document.getElementById("producto_select");
-        const productoBusqueda = document.getElementById("producto_busqueda");
-        const productoBusquedaEstado = document.getElementById("producto_busqueda_estado");
-        const opcionesProducto = Array.from(productoSelect.options);
-        let productoSeleccionado = productoSelect.value;
-
-        productoBusqueda.addEventListener("input", function () {
-            const termino = this.value.trim().toLocaleLowerCase();
-            const opcionesFiltradas = opcionesProducto.filter(function (opcion) {
-                return opcion.textContent.toLocaleLowerCase().includes(termino);
-            });
-
-            productoSelect.replaceChildren(...opcionesFiltradas);
-            productoSelect.value = opcionesFiltradas.some(
-                opcion => opcion.value === productoSeleccionado
-            ) ? productoSeleccionado : "";
-
-            if (opcionesFiltradas.length === 0) {
-                const opcionVacia = document.createElement("option");
-                opcionVacia.textContent = "No se encontraron productos";
-                opcionVacia.disabled = true;
-                opcionVacia.selected = true;
-                productoSelect.append(opcionVacia);
-                productoSelect.value = "";
-                productoBusquedaEstado.textContent = "No hay productos que coincidan con la búsqueda.";
-            } else {
-                productoBusquedaEstado.textContent = termino
-                    ? `${opcionesFiltradas.length} producto(s) encontrado(s).`
-                    : "";
-            }
-
-            calcularSugeridos();
-        });
-
-        productoSelect.addEventListener("change", function () {
-            productoSeleccionado = this.value;
-        });
-
-        function calcularSugeridos() {
-            const option = productoSelect.options[productoSelect.selectedIndex];
-            const base = option ? parseFloat(option.getAttribute("data-base")) || 0 : 0;
-            const suggested = option ? parseFloat(option.getAttribute("data-suggested")) || 0 : 0;
-                
-            
-            document.getElementById("sug_NA").innerText = "PS%: GTQ" + (suggested * 1.00).toFixed(2);
-            document.getElementById("sug_20").innerText = "20%: GTQ" + (base * 1.20).toFixed(2);
-            document.getElementById("sug_25").innerText = "25%: GTQ" + (base * 1.25).toFixed(2);
+        const empresaSelect = document.getElementById("empresa_id");
+        const nuevaEmpresa = document.getElementById("nueva_empresa");
+        function actualizarMarca() {
+            const nueva = !empresaSelect.value;
+            nuevaEmpresa.required = nueva;
+            nuevaEmpresa.disabled = !nueva;
+            document.getElementById("nueva-empresa-wrap").classList.toggle("d-none", !nueva);
         }
-        calcularSugeridos();
+        empresaSelect.addEventListener("change", actualizarMarca);
+        actualizarMarca();
+
+        const userRole = document.getElementById("user-role");
+        const userSeller = document.getElementById("user-seller");
+        function actualizarRolUsuario() {
+            const esVendedor = userRole.value === "vendedor";
+            document.getElementById("user-seller-wrap").classList.toggle("d-none", !esVendedor);
+            userSeller.required = esVendedor;
+            userSeller.disabled = !esVendedor;
+        }
+        userRole.addEventListener("change", actualizarRolUsuario);
+        actualizarRolUsuario();
+
+        document.querySelectorAll("details").forEach((listaColores) => {
+            const resumen = listaColores.querySelector("[data-color-summary]");
+            if (!resumen) return;
+            const actualizarSeleccion = () => {
+                const seleccionados = listaColores.querySelectorAll('input[name="color_ids"]:checked').length;
+                resumen.textContent = `${seleccionados} seleccionados`;
+            };
+            listaColores.addEventListener("change", actualizarSeleccion);
+        });
+
+        if (window.location.hash === "#colores") {
+            bootstrap.Collapse.getOrCreateInstance(document.getElementById("collapseColores")).show();
+        }
+
+        const productoColores = document.getElementById("producto-colores");
+        const coloresAsignables = document.getElementById("colores-asignables");
+        if (productoColores && coloresAsignables) {
+            const busquedaProductoColores = document.getElementById("busqueda-producto-colores");
+            const estadoBusquedaProductoColores = document.getElementById("busqueda-producto-colores-estado");
+            const opcionesProductoColores = Array.from(productoColores.options);
+            let productoSeleccionado = productoColores.value;
+            const productosColores = JSON.parse(
+                document.getElementById("form-asignar-colores").dataset.productosColores
+            );
+            const casillasColor = Array.from(coloresAsignables.querySelectorAll('input[name="color_ids"]'));
+            const resumenColores = document.getElementById("resumen-colores");
+            function cargarColoresProducto() {
+                const producto = productosColores.find(
+                    (item) => String(item.id) === productoColores.value
+                );
+                const coloresSeleccionados = new Set((producto?.color_ids || []).map(String));
+                casillasColor.forEach((casilla) => {
+                    casilla.checked = coloresSeleccionados.has(casilla.value);
+                });
+                actualizarResumenColores();
+            }
+            function actualizarResumenColores() {
+                const cantidad = casillasColor.filter((casilla) => casilla.checked).length;
+                resumenColores.textContent = `${cantidad} color${cantidad === 1 ? "" : "es"} seleccionado${cantidad === 1 ? "" : "s"}`;
+            }
+            productoColores.addEventListener("change", cargarColoresProducto);
+            productoColores.addEventListener("change", function () {
+                productoSeleccionado = this.value;
+            });
+            busquedaProductoColores.addEventListener("input", function () {
+                const termino = this.value.trim().toLocaleLowerCase();
+                const opcionesFiltradas = opcionesProductoColores.filter((opcion) =>
+                    opcion.textContent.toLocaleLowerCase().includes(termino)
+                );
+                productoColores.replaceChildren(...opcionesFiltradas);
+                productoColores.value = opcionesFiltradas.some(
+                    (opcion) => opcion.value === productoSeleccionado
+                ) ? productoSeleccionado : "";
+
+                if (opcionesFiltradas.length === 0) {
+                    const opcionVacia = document.createElement("option");
+                    opcionVacia.textContent = "No se encontraron productos";
+                    opcionVacia.disabled = true;
+                    opcionVacia.selected = true;
+                    productoColores.append(opcionVacia);
+                    productoColores.value = "";
+                    estadoBusquedaProductoColores.textContent = "No hay productos que coincidan con la búsqueda.";
+                } else {
+                    estadoBusquedaProductoColores.textContent = termino
+                        ? `${opcionesFiltradas.length} producto(s) encontrado(s).`
+                        : "";
+                }
+                cargarColoresProducto();
+            });
+            coloresAsignables.addEventListener("change", actualizarResumenColores);
+            document.getElementById("seleccionar-todos-colores").addEventListener("click", () => {
+                casillasColor.forEach((casilla) => { casilla.checked = true; });
+                actualizarResumenColores();
+            });
+            document.getElementById("limpiar-colores").addEventListener("click", () => {
+                casillasColor.forEach((casilla) => { casilla.checked = false; });
+                actualizarResumenColores();
+            });
+            cargarColoresProducto();
+        }
+
+        if (["#asignar-colores", "#modificacion-productos"].includes(window.location.hash)) {
+            bootstrap.Collapse.getOrCreateInstance(
+                document.getElementById("collapseAsignarColores")
+            ).show();
+        }
     </script>
 </body>
 </html>
