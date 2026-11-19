@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: postgres_ventas
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    container_name: app_ventas
+    restart: unless-stopped
+    environment:
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_PORT=5432
+      - DB_HOST=db
+      - APP_PORT=${APP_PORT}
+      - SESSION_SECRET_KEY=${SESSION_SECRET_KEY:-}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      - ADMIN_SETUP_KEY=${ADMIN_SETUP_KEY:-}
+    volumes:
+      - ./app:/code/app
+    command: sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT}"
+    networks:
+      - backend_net
+      - proxy_net
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+
+networks:
+  backend_net:
+  proxy_net:
+    external: true

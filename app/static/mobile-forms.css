@@ -1,0 +1,52 @@
+@media (max-width: 767.98px) {
+    .navbar > .container-fluid {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .navbar .navbar-nav {
+        order: 3;
+        width: 100%;
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+
+    .navbar > .container-fluid > .d-flex {
+        margin-left: auto;
+    }
+
+    .navbar form {
+        margin: 0;
+    }
+
+    .card-body,
+    .accordion-body {
+        padding: 1rem;
+    }
+
+    .form-control:not(.form-control-sm),
+    .form-select:not(.form-select-sm) {
+        min-height: 44px;
+        font-size: 16px;
+    }
+
+    .form-control-sm,
+    .form-select-sm {
+        min-height: 40px;
+        font-size: 16px;
+    }
+
+    .btn {
+        min-height: 44px;
+    }
+
+    .btn-sm {
+        min-height: 40px;
+    }
+
+    .form-check {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+}

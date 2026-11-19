@@ -1,6 +1,7 @@
 import os
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from app.core.database import db_pool, init_db
 from app.core.config import settings
 from app.repositories.usuario import UsuarioRepository
@@ -9,6 +10,7 @@ from app.services.auth import hash_password
 
 app = FastAPI(title="Sistema Relacional de Ventas - SOLID")
 
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(web.router)
 app.include_router(auth.router)
 

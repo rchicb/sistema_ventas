@@ -470,6 +470,7 @@ def registrar_venta(
     sucursal_id: int = Form(..., ge=1),
     precio_vendido: float = Form(..., gt=0),
     porcentaje_ganancia: int = Form(...),
+    number_sold: int = Form(..., ge=0),
     fecha: date = Form(...),
     color_id: int = Form(None, ge=1),
     vendedor_id: int = Form(None, ge=1),
@@ -484,8 +485,14 @@ def registrar_venta(
         raise HTTPException(status_code=400, detail="El porcentaje de comisión no es válido.")
     try:
         venta_repo.registrar_venta(
-            vendedor_id, sucursal_id, base_price_id, precio_vendido, porcentaje_ganancia,
-            color_id, fecha
+            vendedor_id,
+            sucursal_id,
+            base_price_id,
+            precio_vendido,
+            porcentaje_ganancia,
+            number_sold,
+            color_id,
+            fecha,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))

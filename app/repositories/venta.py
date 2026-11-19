@@ -8,15 +8,17 @@ class VentaRepository(BaseRepository):
         base_price_id: int,
         precio_vendido: float,
         porcentaje_ganancia: int,
+        number_sold: int,
         color_id: int = None,
         fecha=None,
     ):
         query = """
             INSERT INTO sales (
-                seller_id, branch_id, product_id, color_id, quantity_sold, historical_base_price,
+                seller_id, branch_id, product_id, color_id, quantity_sold, number_sold,
+                historical_base_price,
                 sale_price, commission, base_price_id, created_at
             )
-            SELECT %s, branch.id, p.id, %s, 1, bp.cost_without_discount, %s, %s, bp.id,
+            SELECT %s, branch.id, p.id, %s, 1, %s, bp.cost_without_discount, %s, %s, bp.id,
                    COALESCE(%s, CURRENT_DATE)
             FROM branches branch
             JOIN base_price bp ON bp.id = %s
@@ -41,15 +43,16 @@ class VentaRepository(BaseRepository):
                         WHERE pc.product_id = p.id AND pc.color_id = %s
                     )
                 )
+                AND (%s = 0 OR %s BETWEEN size.start_number AND size.end_number)
             RETURNING id
         """
         result = self.execute_query(
             query,
             (
-                vendedor_id, color_id, precio_vendido,
+                vendedor_id, color_id, number_sold, precio_vendido,
                 porcentaje_ganancia, fecha, base_price_id, vendedor_id,
                 sucursal_id,
-                color_id, color_id,
+                color_id, color_id, number_sold, number_sold,
             ),
             fetch=True
         )
