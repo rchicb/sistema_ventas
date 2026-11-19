@@ -10,15 +10,22 @@
 <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
         <div class="container-fluid">
-            <a class="navbar-brand" href="/">Sistema Ventas (SOLID)</a>
-            <div class="navbar-nav">
-                <a class="nav-link" href="/">Dashboard</a>
-                <a class="nav-link active" href="/ventas">Registrar ventas</a>
-                {% if es_admin %}<a class="nav-link" href="/formularios">Administración y Catálogos</a>{% endif %}
-            </div>
-            <div class="d-flex align-items-center gap-3 text-white">
-                <span>{{ usuario["username"] }} · {{ "Administrador" if es_admin else "Vendedor" }}</span>
-                <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
+            <a class="navbar-brand" href="/">Distribuidora CHB</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#menuPrincipal" aria-controls="menuPrincipal"
+                    aria-expanded="false" aria-label="Mostrar menú">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="menuPrincipal">
+                <div class="navbar-nav me-auto flex-column flex-lg-row">
+                    <a class="nav-link" href="/">Dashboard</a>
+                    <a class="nav-link active" href="/ventas">Registrar ventas</a>
+                    {% if es_admin %}<a class="nav-link" href="/formularios">Administración y Catálogos</a>{% endif %}
+                </div>
+                <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center gap-2 gap-lg-3 text-white">
+                    <span>{{ usuario["username"] }} · {{ "Administrador" if es_admin else "Vendedor" }}</span>
+                    <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
+                </div>
             </div>
         </div>
     </nav>
@@ -53,6 +60,15 @@
                                 </select>
                             </div>
                             <div class="mb-3">
+                                <label for="segundo_vendedor_id" class="form-label">Segundo vendedor (opcional)</label>
+                                <select id="segundo_vendedor_id" name="segundo_vendedor_id" class="form-select">
+                                    <option value="">Sin segundo vendedor</option>
+                                    {% for v in vendedores_comision %}
+                                    <option value="{{ v[0] }}">{{ v[2] }} - {{ v[1] }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="mb-3">
                                 <label for="fecha" class="form-label">Fecha de venta</label>
                                 <input type="date" id="fecha" name="fecha" class="form-control"
                                        value="{{ fecha_hoy }}" required>
@@ -69,7 +85,7 @@
                                             data-discount="{{ p[5] }}"
                                             data-suggested="{{ p[6] }}"
                                             data-product-id="{{ p[7] }}">
-                                        {{ p[1] }} {{ p[2] }} {{ p[3] }}{% if p[8] %} · {{ p[8] }}{% endif %}{% if es_admin %} [Costo: GTQ {{ p[4] }} · Descuento: GTQ {{ p[5] }}]{% endif %}
+                                        {{ p[1] }} {{ p[2] }} {{ p[3] }}{% if p[8] %} · {{ p[8] }}{% endif %}
                                     </option>
                                     {% endfor %}
                                 </select>
@@ -93,13 +109,20 @@
                                            id="precio_vendido" class="form-control" placeholder="Monto cobrado" required>
                                 </div>
                                 <div class="col-12 col-md-6">
-                                    <label class="form-label">Comisión vendedor</label>
-                                    <select name="porcentaje_ganancia" class="form-select" required>
-                                        <option value="0">0 (Sin comisión)</option>
-                                        <option value="5">5</option>
-                                        <option value="10">10</option>
-                                        <option value="15">15</option>
-                                        <option value="20">20</option>
+                                    <label for="comision_vendedor" class="form-label">Comisión primer vendedor (GTQ)</label>
+                                    <select id="comision_vendedor" name="comision_vendedor" class="form-select" required>
+                                        {% for comision in (0, 2, 3, 5, 10, 15, 20) %}
+                                        <option value="{{ comision }}">GTQ {{ comision }}{% if comision == 0 %} (Sin comisión){% endif %}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label for="comision_segundo_vendedor" class="form-label">Comisión segundo vendedor (GTQ)</label>
+                                    <select id="comision_segundo_vendedor" name="comision_segundo_vendedor"
+                                            class="form-select" disabled>
+                                        {% for comision in (0, 2, 3, 5, 10, 15, 20) %}
+                                        <option value="{{ comision }}">GTQ {{ comision }}{% if comision == 0 %} (Sin comisión){% endif %}</option>
+                                        {% endfor %}
                                     </select>
                                 </div>
                             </div>
@@ -107,9 +130,7 @@
                             <div class="p-3 bg-light rounded mb-3">
                                 <small class="text-muted d-block mb-1">Guía de precios sugeridos comerciales:</small>
                                 <div class="d-flex justify-content-between flex-wrap gap-2 text-dark font-monospace">
-                                    <span id="sug_NA">Precio sugerido: GTQ 0.00</span>
-                                    <span id="sug_20">20%: GTQ 0.00</span>
-                                    <span id="sug_25">25%: GTQ 0.00</span>
+                                    <span id="sug_NA">Precio sugerido: GTQ 0.00</span>                                    
                                 </div>
                             </div>
                             {% endif %}
@@ -120,12 +141,15 @@
             </div>
         </div>
     </main>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         const coloresPorProducto = {{ colores_por_producto | tojson }};
         const productoSelect = document.getElementById("producto_select");
         const colorSelect = document.getElementById("color_select");
         const productoBusqueda = document.getElementById("producto_busqueda");
         const productoBusquedaEstado = document.getElementById("producto_busqueda_estado");
+        const segundoVendedorSelect = document.getElementById("segundo_vendedor_id");
+        const segundaComisionSelect = document.getElementById("comision_segundo_vendedor");
         const opcionesProducto = Array.from(productoSelect.options);
         let productoSeleccionado = productoSelect.value;
 
@@ -184,18 +208,20 @@
 
         function calcularSugeridos() {
             const option = productoSelect.options[productoSelect.selectedIndex];
-            const base = option ? parseFloat(option.getAttribute("data-base")) || 0 : 0;
             const suggested = option ? parseFloat(option.getAttribute("data-suggested")) || 0 : 0;
             const sugerencia = document.getElementById("sug_NA");
             if (sugerencia) {
                 sugerencia.textContent = "Precio sugerido: GTQ " + suggested.toFixed(2);
-                document.getElementById("sug_20").textContent =
-                    "20%: GTQ " + (base * 1.20).toFixed(2);
-                document.getElementById("sug_25").textContent =
-                    "25%: GTQ " + (base * 1.25).toFixed(2);
             }
         }
 
+        function actualizarComisionSegundoVendedor() {
+            segundaComisionSelect.disabled = !segundoVendedorSelect.value;
+            if (!segundoVendedorSelect.value) segundaComisionSelect.value = "0";
+        }
+
+        segundoVendedorSelect.addEventListener("change", actualizarComisionSegundoVendedor);
+        actualizarComisionSegundoVendedor();
         actualizarColores();
         calcularSugeridos();
     </script>

@@ -10,10 +10,22 @@
 <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
         <div class="container-fluid">
-            <a class="navbar-brand" href="/">Sistema Ventas (SOLID)</a>
-            <div class="d-flex align-items-center gap-3 text-white">
-                <span>{{ usuario["username"] }} · Administrador</span>
-                <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
+            <a class="navbar-brand" href="/">Distribuidora CHB</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#menuPrincipal" aria-controls="menuPrincipal"
+                    aria-expanded="false" aria-label="Mostrar menú">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="menuPrincipal">
+                <div class="navbar-nav me-auto flex-column flex-lg-row">
+                    <a class="nav-link" href="/">Dashboard</a>
+                    <a class="nav-link" href="/ventas">Registrar ventas</a>
+                    <a class="nav-link" href="/formularios">Administración y Catálogos</a>
+                </div>
+                <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center gap-2 gap-lg-3 text-white">
+                    <span>{{ usuario["username"] }} · Administrador</span>
+                    <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
+                </div>
             </div>
         </div>
     </nav>
@@ -27,6 +39,7 @@
                     <input type="hidden" name="reporte_fecha" value="{{ filtros_reporte.fecha }}">
                     <input type="hidden" name="reporte_mes" value="{{ filtros_reporte.mes }}">
                     <input type="hidden" name="reporte_semana" value="{{ filtros_reporte.semana }}">
+                    <input type="hidden" name="reporte_todos" value="{{ 'true' if filtros_reporte.todos else 'false' }}">
                     {% if filtros_reporte.vendedor_id %}
                     <input type="hidden" name="reporte_vendedor_id" value="{{ filtros_reporte.vendedor_id }}">
                     {% endif %}
@@ -36,6 +49,15 @@
                             <select id="vendedor_id" name="vendedor_id" class="form-select" required>
                                 {% for vendedor in vendedores %}
                                 <option value="{{ vendedor[0] }}" {% if vendedor[0] == venta[1] %}selected{% endif %}>{{ vendedor[2] }} - {{ vendedor[1] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label for="segundo_vendedor_id" class="form-label">Segundo vendedor (opcional)</label>
+                            <select id="segundo_vendedor_id" name="segundo_vendedor_id" class="form-select">
+                                <option value="">Sin segundo vendedor</option>
+                                {% for vendedor in vendedores_secundarios %}
+                                <option value="{{ vendedor[0] }}" {% if vendedor[0] == segundo_vendedor_id %}selected{% endif %}>{{ vendedor[2] }} - {{ vendedor[1] }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -84,11 +106,21 @@
                             <label for="precio_vendido" class="form-label">Precio de venta (GTQ)</label>
                             <input id="precio_vendido" name="precio_vendido" type="number" min="0.01" step="0.01" class="form-control" value="{{ '%.2f'|format(venta[8]) }}" required>
                         </div>
-                        <div class="col-12 col-md-4">
-                            <label for="porcentaje_ganancia" class="form-label">Comisión vendedor</label>
-                            <select id="porcentaje_ganancia" name="porcentaje_ganancia" class="form-select" required>
-                                {% for comision in (0, 5, 10, 15, 20) %}
-                                <option value="{{ comision }}" {% if comision == venta[9] %}selected{% endif %}>{{ comision }}{% if comision == 0 %} (Sin comisión){% endif %}</option>
+                        <div class="col-12 col-md-6">
+                            <label for="comision_vendedor" class="form-label">Comisión primer vendedor (GTQ)</label>
+                            <select id="comision_vendedor" name="comision_vendedor" class="form-select" required>
+                                {% for comision in (0, 2, 3, 5, 10, 15, 20) %}
+                                <option value="{{ comision }}" {% if comisiones_por_vendedor.get(venta[1], 0) == comision %}selected{% endif %}>GTQ {{ comision }}{% if comision == 0 %} (Sin comisión){% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-6">
+                            <label for="comision_segundo_vendedor" class="form-label">Comisión segundo vendedor (GTQ)</label>
+                            <select id="comision_segundo_vendedor" name="comision_segundo_vendedor"
+                                    class="form-select"
+                                   {% if not segundo_vendedor_id %}disabled{% endif %}>
+                                {% for comision in (0, 2, 3, 5, 10, 15, 20) %}
+                                <option value="{{ comision }}" {% if (comisiones_por_vendedor.get(segundo_vendedor_id, 0) if segundo_vendedor_id else 0) == comision %}selected{% endif %}>GTQ {{ comision }}{% if comision == 0 %} (Sin comisión){% endif %}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -101,12 +133,20 @@
             </div>
         </div>
     </main>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         const coloresPorProducto = {{ colores_por_producto | tojson }};
         const productoSelect = document.getElementById("base_price_id");
         const colorSelect = document.getElementById("color_id");
         const costoBase = document.getElementById("precio_base");
         const colorActual = "{{ venta[4] or '' }}";
+        const segundoVendedorSelect = document.getElementById("segundo_vendedor_id");
+        const segundaComisionInput = document.getElementById("comision_segundo_vendedor");
+
+        segundoVendedorSelect.addEventListener("change", function () {
+            segundaComisionInput.disabled = !this.value;
+            if (!this.value) segundaComisionInput.value = "0";
+        });
 
         function actualizarColores(preservarColor) {
             const option = productoSelect.options[productoSelect.selectedIndex];

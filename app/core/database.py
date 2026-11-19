@@ -177,6 +177,25 @@ def init_db():
         DROP COLUMN IF EXISTS numero_vendido
         """,
         """
+        ALTER TABLE sales
+        ALTER COLUMN commission TYPE NUMERIC(10, 2)
+        USING commission::NUMERIC(10, 2)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS sales_commissions (
+            sale_id INT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+            seller_id INT NOT NULL REFERENCES seller(id) ON DELETE RESTRICT,
+            commission NUMERIC(10, 2) NOT NULL CHECK (commission >= 0),
+            PRIMARY KEY (sale_id, seller_id)
+        )
+        """,
+        """
+        INSERT INTO sales_commissions (sale_id, seller_id, commission)
+        SELECT id, seller_id, commission
+        FROM sales
+        ON CONFLICT (sale_id, seller_id) DO NOTHING
+        """,
+        """
         CREATE TABLE IF NOT EXISTS daily_expenses (
             id SERIAL PRIMARY KEY,
             expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
