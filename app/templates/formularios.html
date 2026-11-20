@@ -10,15 +10,22 @@
 <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
         <div class="container-fluid">
-            <a class="navbar-brand" href="/">Sistema Ventas (SOLID)</a>
-            <div class="navbar-nav">
-                <a class="nav-link" href="/">Dashboard</a>
-                <a class="nav-link" href="/ventas">Registrar ventas</a>
-                <a class="nav-link active" href="/formularios">Administración y Catálogos</a>
-            </div>
-            <div class="d-flex align-items-center gap-3 text-white">
-                <span>{{ usuario["username"] }} · {{ "Administrador" if es_admin else "Vendedor" }}</span>
-                <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
+            <a class="navbar-brand" href="/">Distribuidora CHB</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#menuPrincipal" aria-controls="menuPrincipal"
+                    aria-expanded="false" aria-label="Mostrar menú">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="menuPrincipal">
+                <div class="navbar-nav me-auto flex-column flex-lg-row">
+                    <a class="nav-link" href="/">Dashboard</a>
+                    <a class="nav-link" href="/ventas">Registrar ventas</a>
+                    <a class="nav-link active" href="/formularios">Administración y Catálogos</a>
+                </div>
+                <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center gap-2 gap-lg-3 text-white">
+                    <span>{{ usuario["username"] }} · {{ "Administrador" if es_admin else "Vendedor" }}</span>
+                    <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
+                </div>
             </div>
         </div>
     </nav>

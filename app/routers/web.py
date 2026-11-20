@@ -1,5 +1,6 @@
 import math
 from datetime import date, timedelta
+from decimal import Decimal
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
@@ -22,11 +23,14 @@ GASTOS_CATEGORIAS = (
     "Comida", "Refacciones", "Tortillas", "Frescos",
     "Desayuno", "Almuerzo", "Pago Bodega","Pago Puestos","Otros gastos varios"
 )
+COMISIONES_PERMITIDAS = frozenset(
+    Decimal(monto) for monto in ("0", "2", "3", "5", "10", "15", "20")
+)
 
 def get_venta_repo(): return VentaRepository()
 def get_base_repo(): return BaseRepository()
 
-def url_reporte_ventas(fecha=None, mes=None, semana=None, vendedor_id=None):
+def url_reporte_ventas(fecha=None, mes=None, semana=None, vendedor_id=None, todos=False):
     filtros = {
         nombre: valor
         for nombre, valor in (
@@ -34,6 +38,7 @@ def url_reporte_ventas(fecha=None, mes=None, semana=None, vendedor_id=None):
             ("mes", mes),
             ("semana", semana),
             ("vendedor_id", vendedor_id),
+            ("todos", "true" if todos else None),
         )
         if valor not in (None, "")
     }
@@ -45,11 +50,17 @@ def dashboard(
     fecha: str = None,
     mes: str = None,
     semana: str = None,
+    todos: bool = False,
     vendedor_id: int = None,
     venta_repo: VentaRepository = Depends(get_venta_repo),
     base_repo: BaseRepository = Depends(get_base_repo),
     usuario=Depends(usuario_actual),
 ):
+    if fecha or mes or semana:
+        todos = False
+    elif not todos:
+        fecha = date.today().isoformat()
+
     es_admin = usuario["role"] == "admin"
     if not es_admin:
         if not usuario["seller_id"]:
@@ -154,6 +165,7 @@ def dashboard(
         filtro_fecha=fecha or "",
         filtro_mes=mes or "",
         filtro_semana=semana or "",
+        filtro_todos=todos,
         vendedor_seleccionado=vendedor_id,
         fecha_hoy=date.today().isoformat(),
         usuario=usuario,
@@ -320,6 +332,10 @@ def mostrar_ventas(
         if not vendedores:
             raise HTTPException(status_code=403, detail="El vendedor asociado está inactivo.")
 
+    vendedores_comision = base_repo.execute_query(
+        "SELECT id, name, code FROM seller WHERE state_id = 1 ORDER BY name",
+        fetch=True,
+    ) or []
     sucursales = base_repo.execute_query(
         """
         SELECT id, code, description
@@ -362,6 +378,7 @@ def mostrar_ventas(
     html_content = templates.env.get_template("ventas.html").render(
         request=request,
         vendedores=vendedores,
+        vendedores_comision=vendedores_comision,
         sucursales=sucursales,
         productos=productos,
         colores_por_producto=colores_por_producto,
@@ -378,6 +395,7 @@ def mostrar_editar_venta(
     fecha: str = "",
     mes: str = "",
     semana: str = "",
+    todos: bool = False,
     vendedor_id: int = None,
     venta_repo: VentaRepository = Depends(get_venta_repo),
     base_repo: BaseRepository = Depends(get_base_repo),
@@ -386,6 +404,20 @@ def mostrar_editar_venta(
     venta = venta_repo.obtener_venta_para_editar(venta_id)
     if not venta:
         raise HTTPException(status_code=404, detail="No se encontró la venta.")
+    comisiones_venta = venta_repo.obtener_comisiones_venta(venta_id) or []
+    comisiones_por_vendedor = {
+        vendedor_id: comision for vendedor_id, comision in comisiones_venta
+    }
+    vendedores_asignados = [venta[1], *comisiones_por_vendedor.keys()]
+    vendedores_secundarios = [
+        vendedor
+        for vendedor in base_repo.execute_query(
+            "SELECT id, name, code FROM seller WHERE state_id = 1 OR id = ANY(%s) ORDER BY name",
+            (vendedores_asignados,),
+            fetch=True,
+        ) or []
+        if vendedor[0] != venta[1]
+    ]
 
     vendedores = base_repo.execute_query(
         "SELECT id, name, code FROM seller WHERE state_id = 1 OR id = %s ORDER BY name",
@@ -453,11 +485,22 @@ def mostrar_editar_venta(
         sucursales=sucursales,
         productos=productos,
         colores_por_producto=colores_por_producto,
-        url_retorno=url_reporte_ventas(fecha, mes, semana, vendedor_id),
+        vendedores_secundarios=vendedores_secundarios,
+        comisiones_por_vendedor=comisiones_por_vendedor,
+        segundo_vendedor_id=next(
+            (
+                vendedor_id
+                for vendedor_id, _ in comisiones_venta
+                if vendedor_id != venta[1]
+            ),
+            None,
+        ),
+        url_retorno=url_reporte_ventas(fecha, mes, semana, vendedor_id, todos),
         filtros_reporte={
             "fecha": fecha,
             "mes": mes,
             "semana": semana,
+            "todos": todos,
             "vendedor_id": vendedor_id or "",
         },
         usuario=usuario,
@@ -469,7 +512,9 @@ def registrar_venta(
     base_price_id: int = Form(..., ge=1),
     sucursal_id: int = Form(..., ge=1),
     precio_vendido: float = Form(..., gt=0),
-    porcentaje_ganancia: int = Form(...),
+    comision_vendedor: Decimal = Form(..., ge=0),
+    segundo_vendedor_id: int = Form(None, ge=1),
+    comision_segundo_vendedor: Decimal = Form(Decimal("0"), ge=0),
     number_sold: int = Form(..., ge=0),
     fecha: date = Form(...),
     color_id: int = Form(None, ge=1),
@@ -481,18 +526,36 @@ def registrar_venta(
         vendedor_id = usuario["seller_id"]
     elif vendedor_id is None:
         raise HTTPException(status_code=400, detail="Debe seleccionar un vendedor.")
-    if porcentaje_ganancia not in (0, 5, 10, 15, 20):
-        raise HTTPException(status_code=400, detail="El porcentaje de comisión no es válido.")
+    if (
+        comision_vendedor not in COMISIONES_PERMITIDAS
+        or comision_segundo_vendedor not in COMISIONES_PERMITIDAS
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Seleccione una de las comisiones disponibles.",
+        )
+    if segundo_vendedor_id == vendedor_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Seleccione vendedores diferentes para asignar la comisión.",
+        )
+    if segundo_vendedor_id is None and comision_segundo_vendedor != 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Seleccione el segundo vendedor para asignar esa comisión.",
+        )
     try:
         venta_repo.registrar_venta(
             vendedor_id,
             sucursal_id,
             base_price_id,
             precio_vendido,
-            porcentaje_ganancia,
+            comision_vendedor,
             number_sold,
             color_id,
             fecha,
+            segundo_vendedor_id,
+            comision_segundo_vendedor,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
@@ -508,29 +571,71 @@ def modificar_venta(
     numero_vendido: int = Form(..., ge=0),
     precio_base: float = Form(..., gt=0),
     precio_vendido: float = Form(..., gt=0),
-    porcentaje_ganancia: int = Form(...),
+    comision_vendedor: Decimal = Form(..., ge=0),
+    segundo_vendedor_id: int = Form(None, ge=1),
+    comision_segundo_vendedor: Decimal = Form(Decimal("0"), ge=0),
     fecha: date = Form(...),
     color_id: int = Form(None, ge=1),
     reporte_fecha: str = Form(""),
     reporte_mes: str = Form(""),
     reporte_semana: str = Form(""),
+    reporte_todos: bool = Form(False),
     reporte_vendedor_id: int = Form(None, ge=1),
     venta_repo: VentaRepository = Depends(get_venta_repo),
     usuario=Depends(administrador_actual),
 ):
-    if porcentaje_ganancia not in (0, 5, 10, 15, 20):
-        raise HTTPException(status_code=400, detail="El porcentaje de comisión no es válido.")
+    if (
+        comision_vendedor not in COMISIONES_PERMITIDAS
+        or comision_segundo_vendedor not in COMISIONES_PERMITIDAS
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Seleccione una de las comisiones disponibles.",
+        )
+    if segundo_vendedor_id == vendedor_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Seleccione vendedores diferentes para asignar la comisión.",
+        )
+    if segundo_vendedor_id is None and comision_segundo_vendedor != 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Seleccione el segundo vendedor para asignar esa comisión.",
+        )
     try:
         venta_repo.actualizar_venta(
             venta_id, vendedor_id, sucursal_id, base_price_id, color_id,
             cantidad_vendida, numero_vendido, precio_base, precio_vendido,
-            porcentaje_ganancia, fecha,
+            comision_vendedor, fecha, segundo_vendedor_id,
+            comision_segundo_vendedor,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
     return RedirectResponse(
         url=url_reporte_ventas(
-            reporte_fecha, reporte_mes, reporte_semana, reporte_vendedor_id
+            reporte_fecha, reporte_mes, reporte_semana,
+            reporte_vendedor_id, reporte_todos,
+        ),
+        status_code=303,
+    )
+
+@router.post("/ventas/{venta_id}/eliminar")
+def eliminar_venta(
+    venta_id: int,
+    reporte_fecha: str = Form(""),
+    reporte_mes: str = Form(""),
+    reporte_semana: str = Form(""),
+    reporte_todos: bool = Form(False),
+    reporte_vendedor_id: int = Form(None, ge=1),
+    venta_repo: VentaRepository = Depends(get_venta_repo),
+    usuario=Depends(administrador_actual),
+):
+    if not venta_repo.eliminar_venta(venta_id):
+        raise HTTPException(status_code=404, detail="No se encontró la venta.")
+    return RedirectResponse(
+        url=url_reporte_ventas(
+            reporte_fecha, reporte_mes, reporte_semana,
+            reporte_vendedor_id, reporte_todos,
         ),
         status_code=303,
     )

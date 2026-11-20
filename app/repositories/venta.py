@@ -1,4 +1,7 @@
+from decimal import Decimal
+
 from app.repositories.base import BaseRepository
+from app.core.database import db_pool
 
 class VentaRepository(BaseRepository):
     def registrar_venta(
@@ -7,10 +10,12 @@ class VentaRepository(BaseRepository):
         sucursal_id: int,
         base_price_id: int,
         precio_vendido: float,
-        porcentaje_ganancia: int,
+        comision_vendedor: Decimal,
         number_sold: int,
         color_id: int = None,
         fecha=None,
+        segundo_vendedor_id: int = None,
+        segunda_comision: Decimal = Decimal("0"),
     ):
         query = """
             INSERT INTO sales (
@@ -46,20 +51,54 @@ class VentaRepository(BaseRepository):
                 AND (%s = 0 OR %s BETWEEN size.start_number AND size.end_number)
             RETURNING id
         """
-        result = self.execute_query(
-            query,
-            (
-                vendedor_id, color_id, number_sold, precio_vendido,
-                porcentaje_ganancia, fecha, base_price_id, vendedor_id,
-                sucursal_id,
-                color_id, color_id, number_sold, number_sold,
-            ),
-            fetch=True
-        )
-        if not result:
-            raise ValueError(
-                "No se pudo registrar la venta. Verifique el vendedor, la sucursal, el producto, el color seleccionado y el rango de talla."
-            )
+        conn = db_pool.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    query,
+                    (
+                        vendedor_id, color_id, number_sold, precio_vendido,
+                        comision_vendedor + segunda_comision, fecha,
+                        base_price_id, vendedor_id, sucursal_id,
+                        color_id, color_id, number_sold, number_sold,
+                    ),
+                )
+                result = cursor.fetchone()
+                if not result:
+                    raise ValueError(
+                        "No se pudo registrar la venta. Verifique el vendedor, "
+                        "la sucursal, el producto, el color seleccionado y el "
+                        "rango de talla."
+                    )
+                venta_id = result[0]
+                cursor.execute(
+                    """
+                    INSERT INTO sales_commissions (sale_id, seller_id, commission)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (venta_id, vendedor_id, comision_vendedor),
+                )
+                if segundo_vendedor_id is not None:
+                    cursor.execute(
+                        """
+                        INSERT INTO sales_commissions (sale_id, seller_id, commission)
+                        SELECT %s, id, %s
+                        FROM seller
+                        WHERE id = %s AND state_id = 1
+                        RETURNING seller_id
+                        """,
+                        (venta_id, segunda_comision, segundo_vendedor_id),
+                    )
+                    if not cursor.fetchone():
+                        raise ValueError(
+                            "El segundo vendedor no existe o está inactivo."
+                        )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            db_pool.put_connection(conn)
 
     def obtener_reporte_ganancias(
         self, fecha_inicio=None, fecha_fin=None, vendedor_id=None
@@ -73,19 +112,37 @@ class VentaRepository(BaseRepository):
             conditions.append("s.created_at < %s")
             params.append(fecha_fin)
         if vendedor_id is not None:
-            conditions.append("s.seller_id = %s")
+            conditions.append(
+                "EXISTS (SELECT 1 FROM sales_commissions sc "
+                "WHERE sc.sale_id = s.id AND sc.seller_id = %s)"
+            )
             params.append(vendedor_id)
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         query = f"""
+            WITH commissions AS (
+                SELECT sale_id, SUM(commission) AS commission
+                FROM sales_commissions
+                GROUP BY sale_id
+            ),
+            commission_sellers AS (
+                SELECT sc.sale_id, STRING_AGG(seller.name, ', ' ORDER BY seller.name) AS sellers
+                FROM sales_commissions sc
+                JOIN seller ON seller.id = sc.seller_id
+                GROUP BY sc.sale_id
+            )
             SELECT 
-                s.id, seller.name, c.name,p.code, s.number_sold, colors.name,
-                s.historical_base_price, s.sale_price, s.commission, s.created_at
+                s.id, COALESCE(commission_sellers.sellers, seller.name),
+                c.name, p.code, s.number_sold, colors.name,
+                s.historical_base_price, s.sale_price,
+                COALESCE(commissions.commission, 0), s.created_at
             FROM sales s
             JOIN seller ON s.seller_id = seller.id
             JOIN products p ON s.product_id = p.id
             JOIN companies c ON p.company_id = c.id
             LEFT JOIN base_price bp ON bp.id = s.base_price_id
             LEFT JOIN colors ON colors.id = s.color_id
+            LEFT JOIN commissions ON commissions.sale_id = s.id
+            LEFT JOIN commission_sellers ON commission_sellers.sale_id = s.id
             {where_clause}
             ORDER BY s.created_at DESC, s.id DESC
         """
@@ -105,6 +162,18 @@ class VentaRepository(BaseRepository):
         )
         return result[0] if result else None
 
+    def obtener_comisiones_venta(self, venta_id: int):
+        return self.execute_query(
+            """
+            SELECT seller_id, commission
+            FROM sales_commissions
+            WHERE sale_id = %s
+            ORDER BY seller_id
+            """,
+            (venta_id,),
+            fetch=True,
+        )
+
     def actualizar_venta(
         self,
         venta_id: int,
@@ -116,11 +185,12 @@ class VentaRepository(BaseRepository):
         numero_vendido: int,
         precio_base: float,
         precio_vendido: float,
-        comision: int,
+        comision: Decimal,
         fecha,
+        segundo_vendedor_id: int = None,
+        segunda_comision: Decimal = Decimal("0"),
     ):
-        result = self.execute_query(
-            """
+        query = """
             UPDATE sales AS sale
             SET seller_id = seller.id,
                 branch_id = branch.id,
@@ -163,20 +233,65 @@ class VentaRepository(BaseRepository):
                     OR %s BETWEEN size.start_number AND size.end_number
                 )
             RETURNING sale.id
-            """,
-            (
-                color_id, cantidad_vendida, numero_vendido, precio_base,
-                precio_vendido, comision, fecha, sucursal_id, base_price_id,
-                venta_id, vendedor_id, color_id, color_id, color_id,
-                numero_vendido, numero_vendido,
-            ),
+            """
+        conn = db_pool.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    query,
+                    (
+                        color_id, cantidad_vendida, numero_vendido, precio_base,
+                        precio_vendido, comision + segunda_comision, fecha,
+                        sucursal_id, base_price_id, venta_id, vendedor_id,
+                        color_id, color_id, color_id, numero_vendido,
+                        numero_vendido,
+                    ),
+                )
+                if not cursor.fetchone():
+                    raise ValueError(
+                        "No se pudo modificar la venta. Verifique los datos, "
+                        "el vendedor, la sucursal, el producto, el color y el "
+                        "rango de talla."
+                    )
+                cursor.execute(
+                    "DELETE FROM sales_commissions WHERE sale_id = %s",
+                    (venta_id,),
+                )
+                cursor.execute(
+                    """
+                    INSERT INTO sales_commissions (sale_id, seller_id, commission)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (venta_id, vendedor_id, comision),
+                )
+                if segundo_vendedor_id is not None:
+                    cursor.execute(
+                        """
+                        INSERT INTO sales_commissions (sale_id, seller_id, commission)
+                        SELECT %s, id, %s
+                        FROM seller
+                        WHERE id = %s AND state_id = 1
+                        RETURNING seller_id
+                        """,
+                        (venta_id, segunda_comision, segundo_vendedor_id),
+                    )
+                    if not cursor.fetchone():
+                        raise ValueError(
+                            "El segundo vendedor no existe o está inactivo."
+                        )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            db_pool.put_connection(conn)
+
+    def eliminar_venta(self, venta_id: int):
+        return self.execute_query(
+            "DELETE FROM sales WHERE id = %s RETURNING id",
+            (venta_id,),
             fetch=True,
         )
-        if not result:
-            raise ValueError(
-                "No se pudo modificar la venta. Verifique los datos, el vendedor, "
-                "la sucursal, el producto, el color y el rango de talla."
-            )
 
     def obtener_gastos(self, fecha_inicio=None, fecha_fin=None):
         conditions = []
@@ -248,7 +363,7 @@ class VentaRepository(BaseRepository):
             sales_params.append(fecha_fin)
             payment_params.append(fecha_fin)
         if vendedor_id is not None:
-            sales_conditions.append("s.seller_id = %s")
+            sales_conditions.append("sc.seller_id = %s")
             payment_conditions.append("p.seller_id = %s")
             sales_params.append(vendedor_id)
             payment_params.append(vendedor_id)
@@ -262,12 +377,15 @@ class VentaRepository(BaseRepository):
         )
         query = f"""
             WITH commissions AS (
-                SELECT s.seller_id, seller.name AS vendedor, s.created_at AS fecha,
-                       SUM(s.commission) AS comision, COUNT(*) AS ventas
-                FROM sales s
-                JOIN seller ON seller.id = s.seller_id
+                SELECT sc.seller_id, assigned_seller.name AS vendedor,
+                       s.created_at AS fecha,
+                       SUM(sc.commission) AS comision,
+                       COUNT(DISTINCT s.id) AS ventas
+                FROM sales_commissions sc
+                JOIN sales s ON s.id = sc.sale_id
+                JOIN seller assigned_seller ON assigned_seller.id = sc.seller_id
                 {sales_where}
-                GROUP BY s.seller_id, seller.name, s.created_at
+                GROUP BY sc.seller_id, assigned_seller.name, s.created_at
             ),
             payments AS (
                 SELECT p.seller_id, seller.name AS vendedor,
