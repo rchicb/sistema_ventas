@@ -220,6 +220,12 @@ def init_db():
             UNIQUE (seller_id, payment_date)
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS app_data_migrations (
+            version VARCHAR(100) PRIMARY KEY,
+            applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
     ]
 
     conn = None
@@ -358,6 +364,25 @@ def init_db():
                     ) in base_prices
                 ]
             )
+            cursor.execute(
+                """
+                INSERT INTO app_data_migrations (version)
+                VALUES (%s)
+                ON CONFLICT (version) DO NOTHING
+                RETURNING version
+                """,
+                ("sales_historical_price_uses_discount_v1",),
+            )
+            if cursor.fetchone():
+                cursor.execute(
+                    """
+                    UPDATE sales AS sale
+                    SET historical_base_price = bp.cost_with_discount
+                    FROM base_price bp
+                    WHERE sale.base_price_id = bp.id
+                      AND sale.historical_base_price IS DISTINCT FROM bp.cost_with_discount
+                    """
+                )
         conn.commit()
     except Exception:
         if conn:
