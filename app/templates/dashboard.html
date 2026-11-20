@@ -10,15 +10,22 @@
 <body class="bg-light">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
         <div class="container-fluid">
-            <a class="navbar-brand" href="/">Sistema Ventas (SOLID)</a>
-            <div class="navbar-nav">
-                <a class="nav-link active" href="/">Dashboard</a>
-                <a class="nav-link" href="/ventas">Registrar ventas</a>
-                {% if es_admin %}<a class="nav-link" href="/formularios">Administración y Catálogos</a>{% endif %}
-            </div>
-            <div class="d-flex align-items-center gap-3 text-white">
-                <span>{{ usuario["username"] }} · {{ "Administrador" if es_admin else "Vendedor" }}</span>
-                <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
+            <a class="navbar-brand" href="/">Distribuidora CHB</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#menuPrincipal" aria-controls="menuPrincipal"
+                    aria-expanded="false" aria-label="Mostrar menú">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="menuPrincipal">
+                <div class="navbar-nav me-auto flex-column flex-lg-row">
+                    <a class="nav-link active" href="/">Dashboard</a>
+                    <a class="nav-link" href="/ventas">Registrar ventas</a>
+                    {% if es_admin %}<a class="nav-link" href="/formularios">Administración y Catálogos</a>{% endif %}
+                </div>
+                <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center gap-2 gap-lg-3 text-white">
+                    <span>{{ usuario["username"] }} · {{ "Administrador" if es_admin else "Vendedor" }}</span>
+                    <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
+                </div>
             </div>
         </div>
     </nav>
@@ -30,12 +37,13 @@
                     <div class="col-12 col-md-3">
                         <label for="tipo_periodo" class="form-label">Período</label>
                         <select id="tipo_periodo" class="form-select">
-                            <option value="" {% if not (filtro_fecha or filtro_mes or filtro_semana) %}selected{% endif %}>Todo</option>
+                            <option value="" {% if filtro_todos %}selected{% endif %}>Todo</option>
                             <option value="fecha" {% if filtro_fecha %}selected{% endif %}>Día</option>
                             <option value="mes" {% if filtro_mes %}selected{% endif %}>Mes</option>
                             <option value="semana" {% if filtro_semana %}selected{% endif %}>Semana</option>
                         </select>
                     </div>
+                    <input type="hidden" id="filtro-todos" name="todos" value="{{ 'true' if filtro_todos else 'false' }}">
                     <div class="col-12 col-md-3" id="filtro-dia">
                         <label for="fecha" class="form-label">Fecha</label>
                         <input type="date" id="fecha" name="fecha" class="form-control" value="{{ filtro_fecha }}">
@@ -232,7 +240,7 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0">
                     <thead class="table-light">
-                        <tr><th>Fecha</th>{% if es_admin %}<th>Vendedor</th>{% endif %}<th>Código</th><th>Talla</th><th>Color</th>{% if es_admin %}<th>Costo Base</th>{% endif %}<th>Precio Venta</th><th>Comisión Vdr</th>{% if es_admin %}<th>Utilidad Neta</th><th>Acciones</th>{% endif %}</tr>
+                        <tr><th>Fecha</th>{% if es_admin %}<th>Vendedor(es)</th>{% endif %}<th>Código</th><th>Talla</th><th>Color</th>{% if es_admin %}<th>Costo Base</th>{% endif %}<th>Precio Venta</th><th>Comisión total</th>{% if es_admin %}<th>Utilidad Neta</th><th>Acciones</th>{% endif %}</tr>
                     </thead>
                     <tbody>
                         {% for v in ventas %}
@@ -246,19 +254,34 @@
                             <td class="text-danger">GTQ{{ "%.2f"|format(v.comision) }}</td>
                             {% if es_admin %}
                             <td class="text-success fw-bold">GTQ{{ "%.2f"|format(v.utilidad) }}</td>
-                            <td><a class="btn btn-sm btn-outline-primary" href="/ventas/{{ v.id }}/editar?fecha={{ filtro_fecha }}&mes={{ filtro_mes }}&semana={{ filtro_semana }}{% if vendedor_seleccionado %}&vendedor_id={{ vendedor_seleccionado }}{% endif %}">Modificar</a></td>
+                            <td>
+                                <div class="d-flex flex-column flex-md-row gap-2">
+                                    <a class="btn btn-sm btn-outline-primary" href="/ventas/{{ v.id }}/editar?fecha={{ filtro_fecha }}&mes={{ filtro_mes }}&semana={{ filtro_semana }}{% if filtro_todos %}&todos=true{% endif %}{% if vendedor_seleccionado %}&vendedor_id={{ vendedor_seleccionado }}{% endif %}">Modificar</a>
+                                    <form action="/ventas/{{ v.id }}/eliminar" method="POST"
+                                          onsubmit="return confirm('¿Eliminar esta venta y sus comisiones? Esta acción no se puede deshacer.');">
+                                        <input type="hidden" name="reporte_fecha" value="{{ filtro_fecha }}">
+                                        <input type="hidden" name="reporte_mes" value="{{ filtro_mes }}">
+                                        <input type="hidden" name="reporte_semana" value="{{ filtro_semana }}">
+                                        <input type="hidden" name="reporte_todos" value="{{ 'true' if filtro_todos else 'false' }}">
+                                        {% if vendedor_seleccionado %}<input type="hidden" name="reporte_vendedor_id" value="{{ vendedor_seleccionado }}">{% endif %}
+                                        <button class="btn btn-sm btn-outline-danger w-100" type="submit">Eliminar</button>
+                                    </form>
+                                </div>
+                            </td>
                             {% endif %}
                         </tr>
                         {% else %}
-                        <tr><td colspan="{{ 11 if es_admin else 7 }}" class="text-center text-muted py-4">No hay ventas para este período.</td></tr>
+                        <tr><td colspan="{{ 10 if es_admin else 6 }}" class="text-center text-muted py-4">No hay ventas para este período.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         const tipoPeriodo = document.getElementById("tipo_periodo");
+        const filtroTodos = document.getElementById("filtro-todos");
         const camposPeriodo = {
             fecha: document.getElementById("fecha"),
             mes: document.getElementById("mes"),
@@ -276,6 +299,7 @@
         }
         tipoPeriodo.addEventListener("change", mostrarCampoPeriodo);
         document.getElementById("filtros-reporte").addEventListener("submit", function () {
+            filtroTodos.value = tipoPeriodo.value ? "false" : "true";
             for (const tipo of Object.keys(camposPeriodo)) {
                 if (tipo !== tipoPeriodo.value) camposPeriodo[tipo].disabled = true;
             }
