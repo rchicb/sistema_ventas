@@ -23,7 +23,7 @@ class VentaRepository(BaseRepository):
                 historical_base_price,
                 sale_price, commission, base_price_id, created_at
             )
-            SELECT %s, branch.id, p.id, %s, 1, %s, bp.cost_without_discount, %s, %s, bp.id,
+            SELECT %s, branch.id, p.id, %s, 1, %s, bp.cost_with_discount, %s, %s, bp.id,
                    COALESCE(%s, CURRENT_DATE)
             FROM branches branch
             JOIN base_price bp ON bp.id = %s
