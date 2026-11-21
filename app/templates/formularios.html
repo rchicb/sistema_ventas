@@ -279,6 +279,7 @@
                     </div>
                     <div class="card-body">
                         <form action="/formularios#productos" method="GET" class="row g-3 align-items-end mb-4">
+                            {% if duplicado_id %}<input type="hidden" name="duplicado_id" value="{{ duplicado_id }}">{% endif %}
                             <div class="col-12 col-md-4">
                                 <label for="marca_filtro" class="form-label">Filtrar por marca</label>
                                 <select id="marca_filtro" name="marca_filtro" class="form-select">
@@ -309,35 +310,37 @@
                                         <th>Marca</th><th>Código</th><th>Talla</th>
                                         <th>Descripción</th><th>Colores disponibles</th>
                                         <th>Precio base</th><th>Precio con descuento</th>
-                                        <th>Precio sugerido</th><th>Estado</th><th></th>
+                                        <th>Precio sugerido</th><th>Estado</th><th>Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {% for p in productos_catalogo %}
-                                    <tr>
+                                    {% set fila_id = "producto-" ~ (p[0] if p[0] is not none else "nuevo-" ~ p[1]) %}
+                                    <tr {% if duplicado_id and p[0] == duplicado_id %}class="producto-duplicado"{% endif %}>
                                         <td>
-                                            <select form="producto-{{ p[0] }}" name="empresa_id" class="form-select form-select-sm" required>
+                                            <select form="{{ fila_id }}" name="empresa_id" class="form-select form-select-sm" required>
                                                 {% for empresa in empresas_catalogo %}
                                                 <option value="{{ empresa[0] }}" {% if empresa[0] == p[2] %}selected{% endif %}>{{ empresa[1] }}</option>
                                                 {% endfor %}
                                             </select>
                                         </td>
-                                        <td><input form="producto-{{ p[0] }}" name="codigo" maxlength="50" value="{{ p[4] }}" class="form-control form-control-sm" required></td>
+                                        <td><input form="{{ fila_id }}" name="codigo" maxlength="50" value="{{ p[4] }}" class="form-control form-control-sm" required></td>
                                         <td>
-                                            <select form="producto-{{ p[0] }}" name="talla_letra" class="form-select form-select-sm" required>
+                                            <select form="{{ fila_id }}" name="talla_letra" class="form-select form-select-sm" {% if p[0] is not none %}required{% endif %}>
+                                                <option value="" {% if p[0] is none %}selected{% endif %}>Sin talla asignada</option>
                                                 {% for talla in tallas_catalogo %}
                                                 <option value="{{ talla[0] }}" {% if talla[0] == p[5] %}selected{% endif %}>{{ talla[0] }} ({{ talla[1] }})</option>
                                                 {% endfor %}
                                             </select>
                                         </td>
-                                        <td><input form="producto-{{ p[0] }}" name="descripcion" maxlength="100" value="{{ p[12] }}" class="form-control form-control-sm"></td>
+                                        <td><input form="{{ fila_id }}" name="descripcion" maxlength="100" value="{{ p[12] }}" class="form-control form-control-sm"></td>
                                         <td>
                                             <details>
                                                 <summary class="small" data-color-summary>{{ p[13]|length }} seleccionados</summary>
                                                 <div class="border rounded p-2 mt-1" style="min-width: 180px; max-height: 180px; overflow-y: auto;">
                                                     {% for color in colores %}
                                                     <label class="form-check">
-                                                        <input form="producto-{{ p[0] }}" class="form-check-input" type="checkbox" name="color_ids" value="{{ color[0] }}" {% if color[0] in p[13] %}checked{% endif %}>
+                                                        <input form="{{ fila_id }}" class="form-check-input" type="checkbox" name="color_ids" value="{{ color[0] }}" {% if color[0] in p[13] %}checked{% endif %}>
                                                         <span class="form-check-label">{{ color[1] }}</span>
                                                     </label>
                                                     {% else %}
@@ -346,23 +349,38 @@
                                                 </div>
                                             </details>
                                         </td>
-                                        <td><input form="producto-{{ p[0] }}" type="number" min="0.01" step="0.01" name="precio_base" value="{{ p[8] }}" class="form-control form-control-sm" required></td>
-                                        <td><input form="producto-{{ p[0] }}" type="number" min="0.01" step="0.01" name="precio_descuento" value="{{ p[9] }}" class="form-control form-control-sm" required></td>
-                                        <td><input form="producto-{{ p[0] }}" type="number" min="0.01" step="0.01" name="precio_sugerido" value="{{ p[10] }}" class="form-control form-control-sm" required></td>
+                                        <td><input form="{{ fila_id }}" type="number" min="0.01" step="0.01" name="precio_base" value="{{ p[8] if p[8] is not none else '' }}" placeholder="Sin asignar" class="form-control form-control-sm" {% if p[0] is not none %}required{% endif %}></td>
+                                        <td><input form="{{ fila_id }}" type="number" min="0.01" step="0.01" name="precio_descuento" value="{{ p[9] if p[9] is not none else '' }}" placeholder="Sin asignar" class="form-control form-control-sm" {% if p[0] is not none %}required{% endif %}></td>
+                                        <td><input form="{{ fila_id }}" type="number" min="0.01" step="0.01" name="precio_sugerido" value="{{ p[10] if p[10] is not none else '' }}" placeholder="Sin asignar" class="form-control form-control-sm" {% if p[0] is not none %}required{% endif %}></td>
                                         <td>
-                                            <select form="producto-{{ p[0] }}" name="estado_id" class="form-select form-select-sm" required>
+                                            <select form="{{ fila_id }}" name="estado_id" class="form-select form-select-sm" required>
                                                 {% for estado in estados %}
                                                 <option value="{{ estado[0] }}" {% if estado[0] == p[11] %}selected{% endif %}>{{ estado[1] }}</option>
                                                 {% endfor %}
                                             </select>
                                         </td>
                                         <td>
-                                            <form id="producto-{{ p[0] }}" action="/productos/modificar" method="POST">
-                                                <input type="hidden" name="precio_id" value="{{ p[0] }}">
+                                            <form id="{{ fila_id }}" action="/productos/modificar" method="POST">
+                                                {% if p[0] is not none %}<input type="hidden" name="precio_id" value="{{ p[0] }}">{% endif %}
                                                 <input type="hidden" name="producto_id" value="{{ p[1] }}">
                                                 <input type="hidden" name="marca_filtro" value="{{ marca_filtro or '' }}">
                                                 <input type="hidden" name="codigo_filtro" value="{{ codigo_filtro }}">
+                                                <input type="hidden" name="busqueda_filtro" value="{{ busqueda_filtro }}">
+                                                {% if duplicado_id %}<input type="hidden" name="duplicado_id" value="{{ duplicado_id }}">{% endif %}
                                                 <button class="btn btn-sm btn-outline-primary" type="submit">Guardar</button>
+                                            </form>
+                                            {% if p[0] is not none %}
+                                            <button class="btn btn-sm btn-outline-secondary mt-1"
+                                                    type="button" data-duplicar-producto>Duplicar</button>
+                                            {% endif %}
+                                            <form action="/productos/eliminar" method="POST" class="mt-1"
+                                                  onsubmit="return confirm('{% if p[0] is not none %}¿Eliminar solo esta talla y sus precios? El producto seguirá en el catálogo.{% else %}¿Eliminar este producto?{% endif %}');">
+                                                <input type="hidden" name="producto_id" value="{{ p[1] }}">
+                                                {% if p[0] is not none %}<input type="hidden" name="precio_id" value="{{ p[0] }}">{% endif %}
+                                                <input type="hidden" name="marca_filtro" value="{{ marca_filtro or '' }}">
+                                                <input type="hidden" name="codigo_filtro" value="{{ codigo_filtro }}">
+                                                <input type="hidden" name="busqueda_filtro" value="{{ busqueda_filtro }}">
+                                                <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar registro</button>
                                             </form>
                                         </td>
                                     </tr>
@@ -490,6 +508,66 @@
             };
             listaColores.addEventListener("change", actualizarSeleccion);
         });
+
+        const tablaProductos = document.querySelector("#productos tbody");
+        let contadorDuplicados = 0;
+        if (tablaProductos) {
+            tablaProductos.addEventListener("click", (evento) => {
+                const botonDuplicar = evento.target.closest("[data-duplicar-producto]");
+                if (botonDuplicar) {
+                    const fila = botonDuplicar.closest("tr");
+                    const copia = fila.cloneNode(true);
+                    const formulario = copia.querySelector(
+                        'form[action="/productos/modificar"]'
+                    );
+                    if (!formulario) return;
+                    const idFormulario = `producto-temporal-${++contadorDuplicados}`;
+                    formulario.id = idFormulario;
+                    formulario.querySelector('[name="precio_id"]')?.remove();
+                    formulario.querySelector('[name="duplicado_id"]')?.remove();
+                    formulario.querySelector('[name="es_duplicado"]')?.remove();
+                    const marcaDuplicado = document.createElement("input");
+                    marcaDuplicado.type = "hidden";
+                    marcaDuplicado.name = "es_duplicado";
+                    marcaDuplicado.value = "true";
+                    formulario.append(marcaDuplicado);
+                    copia.querySelectorAll("[form]").forEach((control) => {
+                        control.setAttribute("form", idFormulario);
+                    });
+                    copia.classList.add("producto-duplicado");
+
+                    const formularioEliminar = copia.querySelector(
+                        'form[action="/productos/eliminar"]'
+                    );
+                    if (formularioEliminar) {
+                        const cancelar = document.createElement("button");
+                        cancelar.type = "button";
+                        cancelar.className = "btn btn-sm btn-outline-danger mt-1";
+                        cancelar.dataset.cancelarDuplicado = "";
+                        cancelar.textContent = "Cancelar copia";
+                        formularioEliminar.replaceWith(cancelar);
+                    }
+
+                    fila.after(copia);
+                    copia.querySelector('input[name="codigo"]').focus();
+                }
+
+                const botonCancelar = evento.target.closest(
+                    "[data-cancelar-duplicado]"
+                );
+                if (botonCancelar) botonCancelar.closest("tr").remove();
+            });
+            tablaProductos.addEventListener("change", (evento) => {
+                if (!evento.target.matches('input[name="color_ids"]')) return;
+                const detalle = evento.target.closest("details");
+                const resumen = detalle?.querySelector("[data-color-summary]");
+                if (!resumen) return;
+                const seleccionados = detalle.querySelectorAll(
+                    'input[name="color_ids"]:checked'
+                ).length;
+                resumen.textContent = `${seleccionados} seleccionados`;
+            });
+        }
 
         if (window.location.hash === "#colores") {
             bootstrap.Collapse.getOrCreateInstance(document.getElementById("collapseColores")).show();
