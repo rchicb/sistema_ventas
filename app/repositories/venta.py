@@ -19,11 +19,11 @@ class VentaRepository(BaseRepository):
     ):
         query = """
             INSERT INTO sales (
-                seller_id, branch_id, product_id, color_id, quantity_sold, number_sold,
+                seller_id, branch_id, product_id, color_id, number_sold,
                 historical_base_price,
                 sale_price, commission, base_price_id, created_at
             )
-            SELECT %s, branch.id, p.id, %s, 1, %s, bp.cost_with_discount, %s, %s, bp.id,
+            SELECT %s, branch.id, p.id, %s, %s, bp.cost_with_discount, %s, %s, bp.id,
                    COALESCE(%s, CURRENT_DATE)
             FROM branches branch
             JOIN base_price bp ON bp.id = %s
@@ -151,8 +151,8 @@ class VentaRepository(BaseRepository):
     def obtener_venta_para_editar(self, venta_id: int):
         result = self.execute_query(
             """
-            SELECT id, seller_id, branch_id, product_id, color_id, quantity_sold,
-                   number_sold, historical_base_price, sale_price, commission,
+            SELECT id, seller_id, branch_id, product_id, color_id, number_sold,
+                   historical_base_price, sale_price, commission,
                    base_price_id, created_at
             FROM sales
             WHERE id = %s
@@ -181,7 +181,6 @@ class VentaRepository(BaseRepository):
         sucursal_id: int,
         base_price_id: int,
         color_id: int,
-        cantidad_vendida: int,
         numero_vendido: int,
         precio_base: float,
         precio_vendido: float,
@@ -196,7 +195,6 @@ class VentaRepository(BaseRepository):
                 branch_id = branch.id,
                 product_id = p.id,
                 color_id = %s,
-                quantity_sold = %s,
                 number_sold = %s,
                 historical_base_price = %s,
                 sale_price = %s,
@@ -240,8 +238,8 @@ class VentaRepository(BaseRepository):
                 cursor.execute(
                     query,
                     (
-                        color_id, cantidad_vendida, numero_vendido, precio_base,
-                        precio_vendido, comision + segunda_comision, fecha,
+                        color_id, numero_vendido, precio_base, precio_vendido,
+                        comision + segunda_comision, fecha,
                         sucursal_id, base_price_id, venta_id, vendedor_id,
                         color_id, color_id, color_id, numero_vendido,
                         numero_vendido,

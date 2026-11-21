@@ -1,3 +1,16 @@
+tr.producto-duplicado > td {
+    border-top: 3px solid #0d6efd;
+    border-bottom: 3px solid #0d6efd;
+}
+
+tr.producto-duplicado > td:first-child {
+    border-left: 3px solid #0d6efd;
+}
+
+tr.producto-duplicado > td:last-child {
+    border-right: 3px solid #0d6efd;
+}
+
 @media (max-width: 991.98px) {
     .navbar .navbar-collapse .navbar-nav {
         display: flex;

@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from app.repositories.venta import VentaRepository
 from app.repositories.base import BaseRepository
 from app.repositories.usuario import UsuarioRepository
+from app.core.time import fecha_actual_guatemala
 from app.core.dependencies import (
     administrador_actual,
     get_usuario_repo,
@@ -29,6 +30,26 @@ COMISIONES_PERMITIDAS = frozenset(
 
 def get_venta_repo(): return VentaRepository()
 def get_base_repo(): return BaseRepository()
+
+def obtener_ventas_del_dia(venta_repo, fecha, vendedor_id=None):
+    inicio = date.fromisoformat(fecha)
+    ventas = venta_repo.obtener_reporte_ganancias(
+        inicio, inicio + timedelta(days=1), vendedor_id
+    ) or []
+    return [
+        {
+            "id": venta[0],
+            "vendedor": venta[1],
+            "empresa": venta[2],
+            "codigo": venta[3],
+            "numero": venta[4],
+            "color": venta[5],
+            "base": venta[6],
+            "vendido": venta[7],
+            "comision": venta[8],
+        }
+        for venta in ventas
+    ]
 
 def url_reporte_ventas(fecha=None, mes=None, semana=None, vendedor_id=None, todos=False):
     filtros = {
@@ -59,7 +80,7 @@ def dashboard(
     if fecha or mes or semana:
         todos = False
     elif not todos:
-        fecha = date.today().isoformat()
+        fecha = fecha_actual_guatemala().isoformat()
 
     es_admin = usuario["role"] == "admin"
     if not es_admin:
@@ -167,7 +188,7 @@ def dashboard(
         filtro_semana=semana or "",
         filtro_todos=todos,
         vendedor_seleccionado=vendedor_id,
-        fecha_hoy=date.today().isoformat(),
+        fecha_hoy=fecha_actual_guatemala().isoformat(),
         usuario=usuario,
         es_admin=es_admin,
     )
@@ -179,6 +200,7 @@ def mostrar_formularios(
     marca_filtro: str = "",
     codigo_filtro: str = "",
     busqueda_filtro: str = "",
+    duplicado_id: int = None,
     base_repo: BaseRepository = Depends(get_base_repo),
     usuario=Depends(administrador_actual),
 ):
@@ -210,11 +232,14 @@ def mostrar_formularios(
             )
             termino = f"%{busqueda_filtro}%"
             parametros.extend((termino, termino, termino))
+        if duplicado_id:
+            parametros.append(duplicado_id)
         productos_catalogo = base_repo.execute_query(
             f"""
             SELECT bp.id, p.id, c.id, c.name, p.code, bp.size_label,
                    s.start_number, s.end_number, bp.cost_without_discount,
-                   bp.cost_with_discount, bp.sale_price_suggested, bp.state_id,
+                   bp.cost_with_discount, bp.sale_price_suggested,
+                   COALESCE(bp.state_id, p.state_id),
                    p.description,
                    ARRAY(
                        SELECT pc.color_id
@@ -224,9 +249,10 @@ def mostrar_formularios(
                    )
             FROM products p
             JOIN companies c ON c.id = p.company_id
-            JOIN base_price bp ON bp.product_id = p.id
-            JOIN sizes s ON bp.size_label = s.label
-            WHERE {" AND ".join(condiciones)}
+            LEFT JOIN base_price bp ON bp.product_id = p.id
+            LEFT JOIN sizes s ON bp.size_label = s.label
+            WHERE ({" AND ".join(condiciones)})
+            {"OR bp.id = %s" if duplicado_id else ""}
             ORDER BY c.name, p.code, bp.size_label, bp.id
             """,
             tuple(parametros),
@@ -297,6 +323,7 @@ def mostrar_formularios(
         codigo_filtro=codigo_filtro,
         busqueda_filtro=busqueda_filtro,
         filtros_catalogo_aplicados=filtros_catalogo_aplicados,
+        duplicado_id=duplicado_id,
         tallas=tallas_activas,
         tallas_catalogo=tallas,
         estados=estados,
@@ -314,6 +341,9 @@ def mostrar_formularios(
 @router.get("/ventas")
 def mostrar_ventas(
     request: Request,
+    fecha: str = "",
+    duplicar_id: int = None,
+    venta_repo: VentaRepository = Depends(get_venta_repo),
     base_repo: BaseRepository = Depends(get_base_repo),
     usuario=Depends(usuario_actual),
 ):
@@ -332,10 +362,84 @@ def mostrar_ventas(
         if not vendedores:
             raise HTTPException(status_code=403, detail="El vendedor asociado está inactivo.")
 
+    try:
+        fecha_consulta = date.fromisoformat(fecha) if fecha else fecha_actual_guatemala()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="La fecha de venta no es válida.")
+
+    form_venta = {}
+    if duplicar_id is not None:
+        venta = venta_repo.obtener_venta_para_editar(duplicar_id)
+        if not venta:
+            raise HTTPException(status_code=404, detail="No se encontró la venta que desea duplicar.")
+        comisiones = venta_repo.obtener_comisiones_venta(duplicar_id) or []
+        comisiones_por_vendedor = {
+            vendedor_id: comision for vendedor_id, comision in comisiones
+        }
+        if not es_admin and usuario["seller_id"] not in comisiones_por_vendedor:
+            raise HTTPException(status_code=403, detail="No puede duplicar esta venta.")
+
+        if fecha:
+            fecha_venta = fecha_consulta
+        else:
+            fecha_venta = venta[10]
+            fecha_consulta = fecha_venta
+
+        if es_admin:
+            vendedor_primario_id = venta[1]
+            vendedor_secundario_id = next(
+                (
+                    vendedor_id for vendedor_id in comisiones_por_vendedor
+                    if vendedor_id != vendedor_primario_id
+                ),
+                None,
+            )
+        else:
+            vendedor_primario_id = usuario["seller_id"]
+            vendedor_secundario_id = (
+                venta[1] if venta[1] != vendedor_primario_id else next(
+                    (
+                        vendedor_id for vendedor_id in comisiones_por_vendedor
+                        if vendedor_id != vendedor_primario_id
+                    ),
+                    None,
+                )
+            )
+
+        if es_admin and not any(
+            vendedor[0] == vendedor_primario_id for vendedor in vendedores
+        ):
+            raise HTTPException(status_code=409, detail="El vendedor de la venta original ya no está activo.")
+        form_venta = {
+            "vendedor_id": vendedor_primario_id,
+            "segundo_vendedor_id": vendedor_secundario_id,
+            "sucursal_id": venta[2],
+            "base_price_id": venta[9],
+            "color_id": venta[4],
+            "number_sold": venta[5],
+            "precio_vendido": venta[7],
+            "comision_vendedor": comisiones_por_vendedor.get(
+                vendedor_primario_id, 0
+            ),
+            "comision_segundo_vendedor": (
+                comisiones_por_vendedor.get(vendedor_secundario_id, 0)
+                if vendedor_secundario_id is not None else 0
+            ),
+            "fecha": fecha_venta.isoformat(),
+        }
+
     vendedores_comision = base_repo.execute_query(
         "SELECT id, name, code FROM seller WHERE state_id = 1 ORDER BY name",
         fetch=True,
     ) or []
+    if form_venta and form_venta["segundo_vendedor_id"] is not None and not any(
+        vendedor[0] == form_venta["segundo_vendedor_id"]
+        for vendedor in vendedores_comision
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="El segundo vendedor de la venta original ya no está activo.",
+        )
     sucursales = base_repo.execute_query(
         """
         SELECT id, code, description
@@ -345,6 +449,13 @@ def mostrar_ventas(
         """,
         fetch=True,
     ) or []
+    if form_venta and not any(
+        sucursal[0] == form_venta["sucursal_id"] for sucursal in sucursales
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="La sucursal de la venta original ya no está activa.",
+        )
     productos = base_repo.execute_query(
         """
         SELECT bp.id, c.name, p.code,
@@ -361,6 +472,13 @@ def mostrar_ventas(
         """,
         fetch=True,
     ) or []
+    if form_venta and not any(
+        producto[0] == form_venta["base_price_id"] for producto in productos
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="El producto original ya no está activo y no se puede duplicar.",
+        )
     relaciones_colores = base_repo.execute_query(
         """
         SELECT pc.product_id, colors.id, colors.name
@@ -375,6 +493,23 @@ def mostrar_ventas(
         colores_por_producto.setdefault(product_id, []).append(
             {"id": color_id, "name": nombre_color}
         )
+    if form_venta and form_venta["color_id"] is not None and not any(
+        color["id"] == form_venta["color_id"]
+        for color in colores_por_producto.get(venta[3], [])
+    ):
+        color_actual = base_repo.execute_query(
+            "SELECT id, name FROM colors WHERE id = %s",
+            (form_venta["color_id"],),
+            fetch=True,
+        )
+        if color_actual:
+            colores_por_producto.setdefault(venta[3], []).append(
+                {"id": color_actual[0][0], "name": color_actual[0][1]}
+            )
+    vendedor_historial_id = None if es_admin else usuario["seller_id"]
+    historial_ventas = obtener_ventas_del_dia(
+        venta_repo, fecha_consulta.isoformat(), vendedor_historial_id
+    )
     html_content = templates.env.get_template("ventas.html").render(
         request=request,
         vendedores=vendedores,
@@ -382,11 +517,35 @@ def mostrar_ventas(
         sucursales=sucursales,
         productos=productos,
         colores_por_producto=colores_por_producto,
-        fecha_hoy=date.today().isoformat(),
+        fecha_hoy=fecha_consulta.isoformat(),
+        historial_ventas=historial_ventas,
+        fecha_consulta=fecha_consulta.isoformat(),
+        form_venta=form_venta,
         es_admin=es_admin,
         usuario=usuario,
     )
     return HTMLResponse(content=html_content)
+
+@router.get("/ventas/historial")
+def mostrar_historial_ventas_dia(
+    fecha: str,
+    venta_repo: VentaRepository = Depends(get_venta_repo),
+    usuario=Depends(usuario_actual),
+):
+    try:
+        fecha_consulta = date.fromisoformat(fecha)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="La fecha del historial no es válida.")
+    vendedor_id = None if usuario["role"] == "admin" else usuario["seller_id"]
+    historial_ventas = obtener_ventas_del_dia(
+        venta_repo, fecha_consulta.isoformat(), vendedor_id
+    )
+    return HTMLResponse(
+        content=templates.env.get_template("historial_ventas_dia.html").render(
+            historial_ventas=historial_ventas,
+            fecha_consulta=fecha_consulta.isoformat(),
+        )
+    )
 
 @router.get("/ventas/{venta_id}/editar")
 def mostrar_editar_venta(
@@ -436,7 +595,7 @@ def mostrar_editar_venta(
     productos = base_repo.execute_query(
         """
         SELECT bp.id, p.id, c.name, p.code, bp.size_label, p.description,
-               bp.cost_without_discount, s.start_number, s.end_number
+               bp.cost_without_discount, s.start_number, s.end_number,s.start_number || ' - ' || s.end_number AS size_range
         FROM base_price bp
         JOIN products p ON p.id = bp.product_id
         JOIN companies c ON c.id = p.company_id
@@ -447,7 +606,7 @@ def mostrar_editar_venta(
         ) OR bp.id = %s
         ORDER BY c.name, p.code, bp.size_label
         """,
-        (venta[10],),
+        (venta[9],),
         fetch=True,
     ) or []
     relaciones_colores = base_repo.execute_query(
@@ -559,7 +718,10 @@ def registrar_venta(
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
-    return RedirectResponse(url="/", status_code=303)
+    return RedirectResponse(
+        url=f"/ventas?fecha={fecha.isoformat()}",
+        status_code=303,
+    )
 
 @router.post("/ventas/{venta_id}/modificar")
 def modificar_venta(
@@ -567,7 +729,6 @@ def modificar_venta(
     vendedor_id: int = Form(..., ge=1),
     sucursal_id: int = Form(..., ge=1),
     base_price_id: int = Form(..., ge=1),
-    cantidad_vendida: int = Form(..., ge=1),
     numero_vendido: int = Form(..., ge=0),
     precio_base: float = Form(..., gt=0),
     precio_vendido: float = Form(..., gt=0),
@@ -605,7 +766,7 @@ def modificar_venta(
     try:
         venta_repo.actualizar_venta(
             venta_id, vendedor_id, sucursal_id, base_price_id, color_id,
-            cantidad_vendida, numero_vendido, precio_base, precio_vendido,
+            numero_vendido, precio_base, precio_vendido,
             comision_vendedor, fecha, segundo_vendedor_id,
             comision_segundo_vendedor,
         )
@@ -904,18 +1065,21 @@ def asignar_colores_producto(
 
 @router.post("/productos/modificar")
 def modificar_producto(
-    precio_id: int = Form(..., ge=1),
+    precio_id: int = Form(None, ge=1),
     producto_id: int = Form(..., ge=1),
+    es_duplicado: bool = Form(False),
     empresa_id: int = Form(..., ge=1),
     codigo: str = Form(..., min_length=1, max_length=50),
     descripcion: str = Form("", max_length=100),
     marca_filtro: str = Form(""),
     codigo_filtro: str = Form(""),
+    busqueda_filtro: str = Form(""),
+    duplicado_id: int = Form(None, ge=1),
     color_ids: list[int] = Form([]),
-    talla_letra: str = Form(..., min_length=1, max_length=1),
-    precio_base: float = Form(..., gt=0),
-    precio_descuento: float = Form(..., gt=0),
-    precio_sugerido: float = Form(..., gt=0),
+    talla_letra: str = Form(""),
+    precio_base: str = Form(""),
+    precio_descuento: str = Form(""),
+    precio_sugerido: str = Form(""),
     estado_id: int = Form(...),
     base_repo: BaseRepository = Depends(get_base_repo),
     usuario=Depends(administrador_actual),
@@ -934,80 +1098,209 @@ def modificar_producto(
     codigo = codigo.strip()
     if not codigo:
         raise HTTPException(status_code=400, detail="El código del producto es obligatorio.")
-    talla_letra = talla_letra.upper()
-    if not base_repo.execute_query(
-        "SELECT label FROM sizes WHERE label = %s",
-        (talla_letra,),
-        fetch=True,
-    ):
-        raise HTTPException(status_code=400, detail="La categoría de talla no existe.")
-    if base_repo.execute_query(
-        """
-        SELECT id FROM base_price
-        WHERE product_id = %s AND size_label = %s AND id <> %s
-        """,
-        (producto_id, talla_letra, precio_id),
-        fetch=True,
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="Ya existe un registro para ese producto y categoría de talla.",
-        )
+    talla_letra = talla_letra.strip().upper()
+    precios_ingresados = tuple(
+        precio.strip()
+        for precio in (precio_base, precio_descuento, precio_sugerido)
+    )
+    registrar_precio = bool(talla_letra or any(precios_ingresados))
+    precios = None
+    if precio_id is not None or registrar_precio:
+        if not talla_letra or any(not precio for precio in precios_ingresados):
+            raise HTTPException(
+                status_code=400,
+                detail="Complete la talla y los tres precios para guardar el registro.",
+            )
+        try:
+            precios = tuple(float(precio) for precio in precios_ingresados)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Los precios ingresados no son válidos.")
+        if any(not math.isfinite(precio) or precio <= 0 for precio in precios):
+            raise HTTPException(
+                status_code=400, detail="Los precios deben ser mayores que cero."
+            )
+        if not base_repo.execute_query(
+            "SELECT label FROM sizes WHERE label = %s",
+            (talla_letra,),
+            fetch=True,
+        ):
+            raise HTTPException(status_code=400, detail="La categoría de talla no existe.")
+        if es_duplicado:
+            registro_existente = []
+        elif precio_id is None:
+            registro_existente = base_repo.execute_query(
+                """
+                SELECT id FROM base_price
+                WHERE product_id = %s AND size_label = %s
+                """,
+                (producto_id, talla_letra),
+                fetch=True,
+            )
+        else:
+            registro_existente = base_repo.execute_query(
+                """
+                SELECT id FROM base_price
+                WHERE product_id = %s AND size_label = %s AND id <> %s
+                """,
+                (producto_id, talla_letra, precio_id),
+                fetch=True,
+            )
+        if registro_existente:
+            raise HTTPException(
+                status_code=409,
+                detail="Ya existe un registro para ese producto y categoría de talla.",
+            )
     if not base_repo.execute_query(
         "SELECT id FROM companies WHERE id = %s",
         (empresa_id,),
         fetch=True,
     ):
         raise HTTPException(status_code=400, detail="La marca seleccionada no existe.")
-    if base_repo.execute_query(
-        """
-        SELECT id FROM products
-        WHERE company_id = %s AND code = %s AND id <> %s
-        """,
-        (empresa_id, codigo, producto_id),
-        fetch=True,
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="Ya existe otro producto con ese código para la marca seleccionada.",
-        )
+    producto_existente_id = None
+    if not es_duplicado:
+        producto_existente = base_repo.execute_query(
+            """
+            SELECT id FROM products
+            WHERE company_id = %s AND code = %s AND id <> %s
+            """,
+            (empresa_id, codigo, producto_id),
+            fetch=True,
+        ) or []
+        if producto_existente:
+            if precio_id is None or duplicado_id != precio_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ya existe otro producto con ese código para la marca seleccionada.",
+                )
+            producto_existente_id = producto_existente[0][0]
 
-    resultado = base_repo.execute_query(
-        """
-        WITH precio_actualizado AS (
-            UPDATE base_price
-            SET size_label = %s,
-                cost_without_discount = %s,
-                cost_with_discount = %s,
-                sale_price_suggested = %s,
-                state_id = %s
-            WHERE id = %s AND product_id = %s
-            RETURNING product_id
+    if es_duplicado:
+        if not registrar_precio:
+            raise HTTPException(
+                status_code=400,
+                detail="Seleccione una talla y complete los tres precios para guardar el duplicado.",
+            )
+        try:
+            resultado = base_repo.guardar_producto_duplicado(
+                empresa_id,
+                codigo,
+                descripcion.strip(),
+                estado_id,
+                talla_letra,
+                precios,
+                estado_id,
+                color_ids,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error))
+        if not resultado:
+            raise HTTPException(status_code=404, detail="No se encontró la marca.")
+        _, duplicado_id = resultado
+    elif producto_existente_id is not None:
+        try:
+            precio_nuevo_id = base_repo.fusionar_talla_duplicada(
+                producto_id,
+                precio_id,
+                producto_existente_id,
+                talla_letra,
+                precios,
+                estado_id,
+                color_ids,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error))
+        if not precio_nuevo_id:
+            raise HTTPException(
+                status_code=404, detail="No se encontró el registro duplicado."
+            )
+        duplicado_id = precio_nuevo_id
+    elif precio_id is not None:
+        resultado = base_repo.execute_query(
+            """
+            WITH precio_actualizado AS (
+                UPDATE base_price
+                SET size_label = %s,
+                    cost_without_discount = %s,
+                    cost_with_discount = %s,
+                    sale_price_suggested = %s,
+                    state_id = %s
+                WHERE id = %s AND product_id = %s
+                RETURNING product_id
+            )
+            UPDATE products
+            SET company_id = %s, code = %s, description = %s, state_id = %s
+            WHERE id = (SELECT product_id FROM precio_actualizado)
+            RETURNING id
+            """,
+            (
+                talla_letra, *precios, estado_id, precio_id, producto_id,
+                empresa_id, codigo, descripcion.strip(), estado_id,
+            ),
+            fetch=True,
         )
-        UPDATE products
-        SET company_id = %s, code = %s, description = %s, state_id = %s
-        WHERE id = (SELECT product_id FROM precio_actualizado)
-        RETURNING id
-        """,
-        (
-            talla_letra, precio_base, precio_descuento, precio_sugerido,
-            estado_id, precio_id, producto_id, empresa_id, codigo,
-            descripcion.strip(),
-            estado_id,
-        ),
-        fetch=True,
-    )
-    if not resultado:
-        raise HTTPException(status_code=404, detail="No se encontró el registro del catálogo.")
-    producto_actualizado_id = resultado[0][0]
-    base_repo.reemplazar_colores_producto(producto_actualizado_id, color_ids)
+        if not resultado:
+            raise HTTPException(
+                status_code=404, detail="No se encontró el registro del catálogo."
+            )
+        base_repo.reemplazar_colores_producto(resultado[0][0], color_ids)
+    else:
+        try:
+            resultado = base_repo.actualizar_producto_sin_precio(
+                producto_id,
+                empresa_id,
+                codigo,
+                descripcion.strip(),
+                estado_id,
+                color_ids,
+                talla_letra if registrar_precio else None,
+                precios,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error))
+        if not resultado:
+            raise HTTPException(status_code=404, detail="No se encontró el producto.")
+
     filtros = {
         key: value
         for key, value in (
             ("marca_filtro", marca_filtro.strip()),
             ("codigo_filtro", codigo_filtro.strip()),
+            ("busqueda_filtro", busqueda_filtro.strip()),
+            ("duplicado_id", duplicado_id),
         )
-        if value and value.strip()
+        if value not in (None, "")
+    }
+    query = urlencode(filtros)
+    return RedirectResponse(
+        url=f"/formularios?{query}#productos" if query else "/formularios#productos",
+        status_code=303,
+    )
+
+@router.post("/productos/eliminar")
+def eliminar_producto_catalogo(
+    producto_id: int = Form(..., ge=1),
+    precio_id: int = Form(None, ge=1),
+    marca_filtro: str = Form(""),
+    codigo_filtro: str = Form(""),
+    busqueda_filtro: str = Form(""),
+    base_repo: BaseRepository = Depends(get_base_repo),
+    usuario=Depends(administrador_actual),
+):
+    try:
+        eliminado = base_repo.eliminar_registro_catalogo(producto_id, precio_id)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error))
+    if eliminado is None:
+        raise HTTPException(status_code=404, detail="No se encontró el registro del catálogo.")
+
+    filtros = {
+        key: value
+        for key, value in (
+            ("marca_filtro", marca_filtro.strip()),
+            ("codigo_filtro", codigo_filtro.strip()),
+            ("busqueda_filtro", busqueda_filtro.strip()),
+        )
+        if value
     }
     query = urlencode(filtros)
     return RedirectResponse(

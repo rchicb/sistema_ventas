@@ -240,7 +240,7 @@
             <div class="table-responsive">
                 <table class="table table-hover mb-0">
                     <thead class="table-light">
-                        <tr><th>Fecha</th>{% if es_admin %}<th>Vendedor(es)</th>{% endif %}<th>Código</th><th>Talla</th><th>Color</th>{% if es_admin %}<th>Costo Base</th>{% endif %}<th>Precio Venta</th><th>Comisión total</th>{% if es_admin %}<th>Utilidad Neta</th><th>Acciones</th>{% endif %}</tr>
+                        <tr><th>Fecha</th>{% if es_admin %}<th>Vendedor(es)</th>{% endif %}<th>Código</th><th>Talla</th><th>Color</th>{% if es_admin %}<th>Costo Base</th>{% endif %}<th>Precio Venta</th><th>Comisión total</th>{% if es_admin %}<th>Utilidad Neta</th>{% endif %}<th>Acciones</th></tr>
                     </thead>
                     <tbody>
                         {% for v in ventas %}
@@ -254,8 +254,11 @@
                             <td class="text-danger">GTQ{{ "%.2f"|format(v.comision) }}</td>
                             {% if es_admin %}
                             <td class="text-success fw-bold">GTQ{{ "%.2f"|format(v.utilidad) }}</td>
+                            {% endif %}
                             <td>
                                 <div class="d-flex flex-column flex-md-row gap-2">
+                                    <a class="btn btn-sm btn-outline-secondary" href="/ventas?duplicar_id={{ v.id }}">Duplicar</a>
+                                    {% if es_admin %}
                                     <a class="btn btn-sm btn-outline-primary" href="/ventas/{{ v.id }}/editar?fecha={{ filtro_fecha }}&mes={{ filtro_mes }}&semana={{ filtro_semana }}{% if filtro_todos %}&todos=true{% endif %}{% if vendedor_seleccionado %}&vendedor_id={{ vendedor_seleccionado }}{% endif %}">Modificar</a>
                                     <form action="/ventas/{{ v.id }}/eliminar" method="POST"
                                           onsubmit="return confirm('¿Eliminar esta venta y sus comisiones? Esta acción no se puede deshacer.');">
@@ -266,12 +269,12 @@
                                         {% if vendedor_seleccionado %}<input type="hidden" name="reporte_vendedor_id" value="{{ vendedor_seleccionado }}">{% endif %}
                                         <button class="btn btn-sm btn-outline-danger w-100" type="submit">Eliminar</button>
                                     </form>
+                                    {% endif %}
                                 </div>
                             </td>
-                            {% endif %}
                         </tr>
                         {% else %}
-                        <tr><td colspan="{{ 10 if es_admin else 6 }}" class="text-center text-muted py-4">No hay ventas para este período.</td></tr>
+                        <tr><td colspan="{{ 10 if es_admin else 7 }}" class="text-center text-muted py-4">No hay ventas para este período.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>

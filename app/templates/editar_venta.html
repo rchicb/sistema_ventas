@@ -76,8 +76,8 @@
                                 <option value="{{ producto[0] }}"
                                         data-product-id="{{ producto[1] }}"
                                         data-base="{{ producto[6] }}"
-                                        {% if producto[0] == venta[10] %}selected{% endif %}>
-                                    {{ producto[2] }} {{ producto[3] }} · Talla {{ producto[4] }}{% if producto[5] %} · {{ producto[5] }}{% endif %}
+                                        {% if producto[0] == venta[9] %}selected{% endif %}>
+                                    {{ producto[3] }} · [{{ producto[9] }}]{% if producto[5] %} · {{ producto[5] }}{% endif %}
                                 </option>
                                 {% endfor %}
                             </select>
@@ -88,23 +88,19 @@
                         </div>
                         <div class="col-12 col-md-6">
                             <label for="fecha" class="form-label">Fecha</label>
-                            <input id="fecha" name="fecha" type="date" class="form-control" value="{{ venta[11].isoformat() }}" required>
-                        </div>
-                        <div class="col-12 col-md-6">
-                            <label for="cantidad_vendida" class="form-label">Cantidad vendida</label>
-                            <input id="cantidad_vendida" name="cantidad_vendida" type="number" min="1" step="1" class="form-control" value="{{ venta[5] }}" required>
+                            <input id="fecha" name="fecha" type="date" class="form-control" value="{{ venta[10].isoformat() }}" required>
                         </div>
                         <div class="col-12 col-md-6">
                             <label for="numero_vendido" class="form-label">Número vendido</label>
-                            <input id="numero_vendido" name="numero_vendido" type="number" min="0" step="1" class="form-control" value="{{ venta[6] }}" required>
+                            <input id="numero_vendido" name="numero_vendido" type="number" min="0" step="1" class="form-control" value="{{ venta[5] }}" required>
                         </div>
                         <div class="col-12 col-md-4">
                             <label for="precio_base" class="form-label">Costo base (GTQ)</label>
-                            <input id="precio_base" name="precio_base" type="number" min="0.01" step="0.01" class="form-control" value="{{ '%.2f'|format(venta[7]) }}" required>
+                            <input id="precio_base" name="precio_base" type="number" min="0.01" step="0.01" class="form-control" value="{{ '%.2f'|format(venta[6]) }}" required>
                         </div>
                         <div class="col-12 col-md-4">
                             <label for="precio_vendido" class="form-label">Precio de venta (GTQ)</label>
-                            <input id="precio_vendido" name="precio_vendido" type="number" min="0.01" step="0.01" class="form-control" value="{{ '%.2f'|format(venta[8]) }}" required>
+                            <input id="precio_vendido" name="precio_vendido" type="number" min="0.01" step="0.01" class="form-control" value="{{ '%.2f'|format(venta[7]) }}" required>
                         </div>
                         <div class="col-12 col-md-6">
                             <label for="comision_vendedor" class="form-label">Comisión primer vendedor (GTQ)</label>
