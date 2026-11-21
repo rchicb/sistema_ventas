@@ -11,7 +11,10 @@ class DatabaseConnectionPool:
         for i in range(5):
             try:
                 self._pool = psycopg2.pool.SimpleConnectionPool(
-                    1, 10, dsn=settings.DATABASE_URL
+                    1,
+                    10,
+                    dsn=settings.DATABASE_URL,
+                    options="-c timezone=America/Guatemala",
                 )
                 print("Pool de conexiones a PostgreSQL inicializado con éxito.")
                 return
@@ -151,7 +154,6 @@ def init_db():
             branch_id INT REFERENCES branches(id),
             product_id INT NOT NULL REFERENCES products(id),
             color_id INT REFERENCES colors(id),
-            quantity_sold INT NOT NULL,
             number_sold INT NOT NULL DEFAULT 0,
             historical_base_price NUMERIC(10, 2) NOT NULL,
             sale_price NUMERIC(10, 2) NOT NULL,
@@ -175,6 +177,10 @@ def init_db():
         """
         ALTER TABLE sales
         DROP COLUMN IF EXISTS numero_vendido
+        """,
+        """
+        ALTER TABLE sales
+        DROP COLUMN IF EXISTS quantity_sold
         """,
         """
         ALTER TABLE sales

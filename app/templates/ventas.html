@@ -43,7 +43,7 @@
                                 <label class="form-label">Seleccionar vendedor</label>
                                 <select name="vendedor_id" class="form-select" required>
                                     {% for v in vendedores %}
-                                    <option value="{{ v[0] }}">{{ v[2] }} - {{ v[1] }}</option>
+                                    <option value="{{ v[0] }}" {% if form_venta.get("vendedor_id") == v[0] %}selected{% endif %}>{{ v[2] }} - {{ v[1] }}</option>
                                     {% endfor %}
                                 </select>
                             </div>
@@ -55,7 +55,7 @@
                                 <select id="sucursal_id" name="sucursal_id" class="form-select" required>
                                     <option value="">Seleccione una sucursal</option>
                                     {% for sucursal in sucursales %}
-                                    <option value="{{ sucursal[0] }}">{{ sucursal[1] }} - {{ sucursal[2] }}</option>
+                                    <option value="{{ sucursal[0] }}" {% if form_venta.get("sucursal_id") == sucursal[0] %}selected{% endif %}>{{ sucursal[1] }} - {{ sucursal[2] }}</option>
                                     {% endfor %}
                                 </select>
                             </div>
@@ -64,14 +64,14 @@
                                 <select id="segundo_vendedor_id" name="segundo_vendedor_id" class="form-select">
                                     <option value="">Sin segundo vendedor</option>
                                     {% for v in vendedores_comision %}
-                                    <option value="{{ v[0] }}">{{ v[2] }} - {{ v[1] }}</option>
+                                    <option value="{{ v[0] }}" {% if form_venta.get("segundo_vendedor_id") == v[0] %}selected{% endif %}>{{ v[2] }} - {{ v[1] }}</option>
                                     {% endfor %}
                                 </select>
                             </div>
                             <div class="mb-3">
                                 <label for="fecha" class="form-label">Fecha de venta</label>
                                 <input type="date" id="fecha" name="fecha" class="form-control"
-                                       value="{{ fecha_hoy }}" required>
+                                       value="{{ form_venta.get('fecha', fecha_hoy) }}" required>
                             </div>
                             <div class="mb-3">
                                 <label for="producto_busqueda" class="form-label">Buscar producto</label>
@@ -84,8 +84,9 @@
                                             data-base="{{ p[4] }}"
                                             data-discount="{{ p[5] }}"
                                             data-suggested="{{ p[6] }}"
-                                            data-product-id="{{ p[7] }}">
-                                        {{ p[1] }} {{ p[2] }} {{ p[3] }}{% if p[8] %} · {{ p[8] }}{% endif %}
+                                            data-product-id="{{ p[7] }}"
+                                            {% if form_venta.get("base_price_id") == p[0] %}selected{% endif %}>
+                                         {{ p[2] }} {{ p[3] }}{% if p[8] %} · {{ p[8] }}{% endif %}
                                     </option>
                                     {% endfor %}
                                 </select>
@@ -100,19 +101,21 @@
                             <div class="mb-3">
                                 <label for="number_sold" class="form-label">Número vendido</label>
                                 <input type="number" min="0" step="1" name="number_sold"
-                                       id="number_sold" class="form-control" required>
+                                       id="number_sold" class="form-control"
+                                       value="{{ form_venta.get('number_sold', '') }}" required>
                             </div>
                             <div class="row g-3 mb-3">
                                 <div class="col-12 col-md-6">
                                     <label for="precio_vendido" class="form-label">Precio vendido (GTQ)</label>
                                     <input type="number" min="0.01" step="0.01" name="precio_vendido"
-                                           id="precio_vendido" class="form-control" placeholder="Monto cobrado" required>
+                                           id="precio_vendido" class="form-control" placeholder="Monto cobrado"
+                                           value="{{ form_venta.get('precio_vendido', '') }}" required>
                                 </div>
                                 <div class="col-12 col-md-6">
                                     <label for="comision_vendedor" class="form-label">Comisión primer vendedor (GTQ)</label>
                                     <select id="comision_vendedor" name="comision_vendedor" class="form-select" required>
                                         {% for comision in (0, 2, 3, 5, 10, 15, 20) %}
-                                        <option value="{{ comision }}">GTQ {{ comision }}{% if comision == 0 %} (Sin comisión){% endif %}</option>
+                                        <option value="{{ comision }}" {% if form_venta.get("comision_vendedor", 0) == comision %}selected{% endif %}>GTQ {{ comision }}{% if comision == 0 %} (Sin comisión){% endif %}</option>
                                         {% endfor %}
                                     </select>
                                 </div>
@@ -121,7 +124,7 @@
                                     <select id="comision_segundo_vendedor" name="comision_segundo_vendedor"
                                             class="form-select" disabled>
                                         {% for comision in (0, 2, 3, 5, 10, 15, 20) %}
-                                        <option value="{{ comision }}">GTQ {{ comision }}{% if comision == 0 %} (Sin comisión){% endif %}</option>
+                                        <option value="{{ comision }}" {% if form_venta.get("comision_segundo_vendedor", 0) == comision %}selected{% endif %}>GTQ {{ comision }}{% if comision == 0 %} (Sin comisión){% endif %}</option>
                                         {% endfor %}
                                     </select>
                                 </div>
@@ -138,6 +141,14 @@
                         </form>
                     </div>
                 </div>
+                <div class="card shadow-sm mt-4">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0">Historial de ventas del día ingresado</h5>
+                    </div>
+                    <div class="card-body" id="historial-ventas-dia">
+                        {% include "historial_ventas_dia.html" %}
+                    </div>
+                </div>
             </div>
         </div>
     </main>
@@ -150,6 +161,8 @@
         const productoBusquedaEstado = document.getElementById("producto_busqueda_estado");
         const segundoVendedorSelect = document.getElementById("segundo_vendedor_id");
         const segundaComisionSelect = document.getElementById("comision_segundo_vendedor");
+        const fechaVenta = document.getElementById("fecha");
+        const colorInicial = "{{ form_venta.get('color_id') or '' }}";
         const opcionesProducto = Array.from(productoSelect.options);
         let productoSeleccionado = productoSelect.value;
 
@@ -186,7 +199,7 @@
             calcularSugeridos();
         });
 
-        function actualizarColores() {
+        function actualizarColores(preservarColor = false) {
             const option = productoSelect.options[productoSelect.selectedIndex];
             const productId = option ? option.getAttribute("data-product-id") : null;
             const colores = productId ? coloresPorProducto[productId] || [] : [];
@@ -202,6 +215,9 @@
                 opcion.textContent = color.name;
                 colorSelect.append(opcion);
             });
+            if (preservarColor && colores.some(color => String(color.id) === colorInicial)) {
+                colorSelect.value = colorInicial;
+            }
             colorSelect.required = colores.length > 0;
             colorSelect.disabled = colores.length === 0;
         }
@@ -221,8 +237,23 @@
         }
 
         segundoVendedorSelect.addEventListener("change", actualizarComisionSegundoVendedor);
+        fechaVenta.addEventListener("change", async function () {
+            const historial = document.getElementById("historial-ventas-dia");
+            try {
+                const respuesta = await fetch(
+                    `/ventas/historial?fecha=${encodeURIComponent(this.value)}`
+                );
+                if (!respuesta.ok) {
+                    throw new Error("No se pudo consultar el historial de ventas.");
+                }
+                historial.innerHTML = await respuesta.text();
+            } catch (error) {
+                console.error(error);
+                historial.innerHTML = '<div class="alert alert-danger mb-0">No se pudo actualizar el historial. Intente de nuevo.</div>';
+            }
+        });
         actualizarComisionSegundoVendedor();
-        actualizarColores();
+        actualizarColores(true);
         calcularSugeridos();
     </script>
 </body>

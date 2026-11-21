@@ -1,0 +1,35 @@
+<p class="text-muted">Fecha: {{ fecha_consulta }}</p>
+<div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-light">
+            <tr>
+                <th>Vendedor(es)</th><th>Empresa</th><th>Código</th>
+                <th>Número</th><th>Color</th><th>Precio venta</th>
+                <th>Comisión</th><th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for venta in historial_ventas %}
+            <tr>
+                <td>{{ venta.vendedor }}</td>
+                <td>{{ venta.empresa }}</td>
+                <td>{{ venta.codigo }}</td>
+                <td>{{ venta.numero }}</td>
+                <td>{{ venta.color or "-" }}</td>
+                <td>GTQ{{ "%.2f"|format(venta.vendido) }}</td>
+                <td>GTQ{{ "%.2f"|format(venta.comision) }}</td>
+                <td>
+                    <a class="btn btn-sm btn-outline-primary"
+                       href="/ventas?duplicar_id={{ venta.id }}">Duplicar</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8" class="text-center text-muted py-3">
+                    No hay ventas para este día.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
