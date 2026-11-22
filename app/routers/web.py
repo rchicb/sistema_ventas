@@ -4,7 +4,7 @@ from decimal import Decimal
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
-from fastapi.responses import RedirectResponse,HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from app.repositories.venta import VentaRepository
 from app.repositories.base import BaseRepository
@@ -40,6 +40,10 @@ def obtener_ventas_del_dia(venta_repo, fecha, vendedor_id=None):
         {
             "id": venta[0],
             "vendedor": venta[1],
+            "vendedores": [
+                {"nombre": nombre, "pagado": nombre in (venta[11] or [])}
+                for nombre in (venta[12] or [])
+            ],
             "empresa": venta[2],
             "codigo": venta[3],
             "numero": venta[4],
@@ -47,6 +51,7 @@ def obtener_ventas_del_dia(venta_repo, fecha, vendedor_id=None):
             "base": venta[6],
             "vendido": venta[7],
             "comision": venta[8],
+            "estado_pago": venta[10],
         }
         for venta in ventas
     ]
@@ -73,6 +78,11 @@ def dashboard(
     semana: str = None,
     todos: bool = False,
     vendedor_id: int = None,
+    historial_vendedor_id: int = None,
+    estado_pago: str = "",
+    pago_vendedor_id: int = None,
+    pago_fecha_venta: date = None,
+    filtro_aplicado: bool = False,
     venta_repo: VentaRepository = Depends(get_venta_repo),
     base_repo: BaseRepository = Depends(get_base_repo),
     usuario=Depends(usuario_actual),
@@ -83,12 +93,17 @@ def dashboard(
         fecha = fecha_actual_guatemala().isoformat()
 
     es_admin = usuario["role"] == "admin"
+    if estado_pago not in ("", "pagado", "parcial", "pendiente"):
+        raise HTTPException(
+            status_code=400, detail="El estado de pago seleccionado no es válido."
+        )
     if not es_admin:
         if not usuario["seller_id"]:
             raise HTTPException(status_code=403, detail="La cuenta no tiene vendedor asignado.")
         if vendedor_id is not None and vendedor_id != usuario["seller_id"]:
             raise HTTPException(status_code=403, detail="No puede consultar reportes de otros vendedores.")
         vendedor_id = usuario["seller_id"]
+        historial_vendedor_id = None
 
     filtros_periodo = [value for value in (fecha, mes, semana) if value]
     if len(filtros_periodo) > 1:
@@ -131,7 +146,8 @@ def dashboard(
     for item in raw_ventas:
         (
             v_id, v_nombre, p_empresa, p_codigo, p_talla, p_color, p_base, p_vendido,
-            porc_comision, fecha_venta
+            porc_comision, fecha_venta, estado_venta, vendedores_pagados,
+            vendedores_asignados
         ) = item
         
         p_base = float(p_base)
@@ -146,11 +162,32 @@ def dashboard(
         utilidad_antes_gastos += utilidad
         
         ventas_procesadas.append({
-            "id": v_id, "vendedor": v_nombre, "empresa": p_empresa, "codigo": p_codigo,
+            "id": v_id,
+            "vendedor": v_nombre,
+            "vendedores": [
+                {"nombre": nombre, "pagado": nombre in (vendedores_pagados or [])}
+                for nombre in (vendedores_asignados or [])
+            ],
+            "empresa": p_empresa, "codigo": p_codigo,
             "talla": p_talla, "color": p_color, "base": p_base,
             "vendido": p_vendido, "comision": comision,
-            "utilidad": utilidad, "fecha": fecha_venta
+            "utilidad": utilidad, "fecha": fecha_venta,
+            "estado_pago": estado_venta,
         })
+
+    if historial_vendedor_id is not None or estado_pago:
+        historial_raw_ventas = venta_repo.obtener_reporte_ganancias(
+            fecha_inicio,
+            fecha_fin,
+            vendedor_id,
+            historial_vendedor_id,
+            estado_pago or None,
+        ) or []
+        ventas_ids_historial = {venta[0] for venta in historial_raw_ventas}
+        ventas_procesadas = [
+            venta for venta in ventas_procesadas
+            if venta["id"] in ventas_ids_historial
+        ]
 
     if es_admin:
         gastos = venta_repo.obtener_gastos(fecha_inicio, fecha_fin) or []
@@ -160,11 +197,39 @@ def dashboard(
             "SELECT id, name FROM seller WHERE state_id = 1 ORDER BY name",
             fetch=True,
         ) or []
+        administradores = base_repo.execute_query(
+            """
+            SELECT id, username FROM app_users
+            WHERE role = 'admin' AND state_id = 1
+            ORDER BY username
+            """,
+            fetch=True,
+        ) or []
     else:
         gastos = []
         total_gastos = 0
         total_utilidad = 0
         vendedores = []
+        administradores = []
+    vendedor_ids_activos = {vendedor[0] for vendedor in vendedores}
+    if pago_vendedor_id is not None and pago_vendedor_id not in vendedor_ids_activos:
+        raise HTTPException(
+            status_code=400, detail="El vendedor del filtro de pagos no está activo."
+        )
+    vendedor_pago_seleccionado = (
+        pago_vendedor_id
+        if pago_vendedor_id is not None
+        else (vendedores[0][0] if vendedores else None)
+    )
+    fecha_ventas_pago = pago_fecha_venta or (
+        date.fromisoformat(fecha) if fecha else None
+    )
+    ventas_pendientes_pago = (
+        venta_repo.obtener_ventas_pendientes_pago(
+            vendedor_pago_seleccionado, fecha_inicio, fecha_fin
+        ) or []
+        if es_admin and vendedor_pago_seleccionado is not None else []
+    )
     reporte_vendedores = venta_repo.obtener_reporte_vendedores(
         fecha_inicio, fecha_fin, vendedor_id
     ) or []
@@ -188,6 +253,13 @@ def dashboard(
         filtro_semana=semana or "",
         filtro_todos=todos,
         vendedor_seleccionado=vendedor_id,
+        historial_vendedor_seleccionado=historial_vendedor_id,
+        estado_pago_seleccionado=estado_pago,
+        pago_fecha_ventas=fecha_ventas_pago,
+        filtro_aplicado=filtro_aplicado,
+        administradores=administradores,
+        ventas_pendientes_pago=ventas_pendientes_pago,
+        vendedor_pago_seleccionado=vendedor_pago_seleccionado,
         fecha_hoy=fecha_actual_guatemala().isoformat(),
         usuario=usuario,
         es_admin=es_admin,
@@ -547,6 +619,33 @@ def mostrar_historial_ventas_dia(
         )
     )
 
+@router.get("/vendedores/pagos/ventas")
+def listar_ventas_pendientes_pago(
+    vendedor_id: int,
+    fecha: date = None,
+    venta_repo: VentaRepository = Depends(get_venta_repo),
+    usuario=Depends(administrador_actual),
+):
+    fecha_fin = fecha + timedelta(days=1) if fecha else None
+    ventas = venta_repo.obtener_ventas_pendientes_pago(
+        vendedor_id, fecha, fecha_fin
+    ) or []
+    return JSONResponse(
+        [
+            {
+                "id": venta[0],
+                "fecha": venta[1].isoformat(),
+                "empresa": venta[2],
+                "codigo": venta[3],
+                "talla": venta[4],
+                "numero": venta[5],
+                "color": venta[6],
+                "comision": float(venta[7]),
+            }
+            for venta in ventas
+        ]
+    )
+
 @router.get("/ventas/{venta_id}/editar")
 def mostrar_editar_venta(
     venta_id: int,
@@ -560,6 +659,14 @@ def mostrar_editar_venta(
     base_repo: BaseRepository = Depends(get_base_repo),
     usuario=Depends(administrador_actual),
 ):
+    if venta_repo.execute_query(
+        "SELECT 1 FROM seller_payment_sales WHERE sale_id = %s LIMIT 1",
+        (venta_id,),
+        fetch=True,
+    ):
+        raise HTTPException(
+            status_code=409, detail="No se puede modificar una venta que ya fue pagada."
+        )
     venta = venta_repo.obtener_venta_para_editar(venta_id)
     if not venta:
         raise HTTPException(status_code=404, detail="No se encontró la venta.")
@@ -791,8 +898,11 @@ def eliminar_venta(
     venta_repo: VentaRepository = Depends(get_venta_repo),
     usuario=Depends(administrador_actual),
 ):
-    if not venta_repo.eliminar_venta(venta_id):
-        raise HTTPException(status_code=404, detail="No se encontró la venta.")
+    try:
+        if not venta_repo.eliminar_venta(venta_id):
+            raise HTTPException(status_code=404, detail="No se encontró la venta.")
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error))
     return RedirectResponse(
         url=url_reporte_ventas(
             reporte_fecha, reporte_mes, reporte_semana,
@@ -837,12 +947,18 @@ def modificar_gasto(
 def registrar_pago_vendedor(
     vendedor_id: int = Form(...),
     fecha: date = Form(...),
-    monto: float = Form(..., ge=0),
+    admin_user_id: int = Form(...),
+    venta_ids: list[int] = Form(...),
     notas: str = Form(""),
     venta_repo: VentaRepository = Depends(get_venta_repo),
     usuario=Depends(administrador_actual),
 ):
-    venta_repo.registrar_pago_vendedor(vendedor_id, fecha, monto, notas)
+    try:
+        venta_repo.registrar_pago_vendedor(
+            vendedor_id, fecha, notas, admin_user_id, venta_ids
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
     return RedirectResponse(url="/", status_code=303)
 
 @router.post("/vendedores/agregar")
