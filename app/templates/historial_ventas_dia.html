@@ -5,13 +5,17 @@
             <tr>
                 <th>Vendedor(es)</th><th>Empresa</th><th>Código</th>
                 <th>Número</th><th>Color</th><th>Precio venta</th>
-                <th>Comisión</th><th>Acciones</th>
+                <th>Comisión</th><th>Estado de pago</th><th>Acciones</th>
             </tr>
         </thead>
         <tbody>
             {% for venta in historial_ventas %}
-            <tr>
-                <td>{{ venta.vendedor }}</td>
+            <tr class="{% if venta.estado_pago == 'pagado' %}table-success venta-pagada{% elif venta.estado_pago == 'parcial' %}table-warning venta-pago-parcial{% endif %}">
+                <td>
+                    {% for vendedor in venta.vendedores %}
+                    {% if vendedor.pagado %}<strong>{{ vendedor.nombre }}</strong>{% else %}{{ vendedor.nombre }}{% endif %}{% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                </td>
                 <td>{{ venta.empresa }}</td>
                 <td>{{ venta.codigo }}</td>
                 <td>{{ venta.numero }}</td>
@@ -19,13 +23,18 @@
                 <td>GTQ{{ "%.2f"|format(venta.vendido) }}</td>
                 <td>GTQ{{ "%.2f"|format(venta.comision) }}</td>
                 <td>
+                    <span class="badge {% if venta.estado_pago == 'pagado' %}bg-success{% elif venta.estado_pago == 'parcial' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                        {% if venta.estado_pago == "pagado" %}Pagado{% elif venta.estado_pago == "parcial" %}Pago parcial{% else %}Pendiente{% endif %}
+                    </span>
+                </td>
+                <td>
                     <a class="btn btn-sm btn-outline-primary"
                        href="/ventas?duplicar_id={{ venta.id }}">Duplicar</a>
                 </td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="8" class="text-center text-muted py-3">
+                <td colspan="9" class="text-center text-muted py-3">
                     No hay ventas para este día.
                 </td>
             </tr>
