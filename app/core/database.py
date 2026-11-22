@@ -227,6 +227,24 @@ def init_db():
         )
         """,
         """
+        ALTER TABLE seller_payments
+        DROP CONSTRAINT IF EXISTS seller_payments_seller_id_payment_date_key
+        """,
+        """
+        ALTER TABLE seller_payments
+        ADD COLUMN IF NOT EXISTS admin_user_id INT REFERENCES app_users(id)
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS seller_payment_sales (
+            seller_payment_id INT NOT NULL REFERENCES seller_payments(id) ON DELETE CASCADE,
+            sale_id INT NOT NULL,
+            seller_id INT NOT NULL,
+            PRIMARY KEY (sale_id, seller_id),
+            FOREIGN KEY (sale_id, seller_id)
+                REFERENCES sales_commissions(sale_id, seller_id) ON DELETE CASCADE
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS app_data_migrations (
             version VARCHAR(100) PRIMARY KEY,
             applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP

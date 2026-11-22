@@ -7,7 +7,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="/static/mobile-forms.css" rel="stylesheet">
 </head>
-<body class="bg-light">
+<body class="bg-light" data-report-updated="{{ 'true' if filtro_aplicado else 'false' }}">
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
         <div class="container-fluid">
             <a class="navbar-brand" href="/">Distribuidora CHB</a>
@@ -44,6 +44,9 @@
                         </select>
                     </div>
                     <input type="hidden" id="filtro-todos" name="todos" value="{{ 'true' if filtro_todos else 'false' }}">
+                    <input type="hidden" id="pago-vendedor-filtro" name="pago_vendedor_id" value="{{ vendedor_pago_seleccionado or '' }}">
+                    <input type="hidden" id="pago-fecha-filtro" name="pago_fecha_venta" value="{{ pago_fecha_ventas.isoformat() if pago_fecha_ventas else '' }}">
+                    <input type="hidden" id="filtro-aplicado" name="filtro_aplicado" value="false">
                     <div class="col-12 col-md-3" id="filtro-dia">
                         <label for="fecha" class="form-label">Fecha</label>
                         <input type="date" id="fecha" name="fecha" class="form-control" value="{{ filtro_fecha }}">
@@ -188,13 +191,13 @@
         {% endif %}
 
         {% if es_admin %}<div class="card shadow-sm mb-4">
-            <div class="card-header bg-white"><h5 class="mb-0">Registrar pago de vendedor</h5><small class="text-muted">Un pago por vendedor y día; al guardar de nuevo se actualiza el monto.</small></div>
+            <div class="card-header bg-white"><h5 class="mb-0">Registrar pago de vendedor</h5><small class="text-muted">Seleccione las ventas que se están pagando; el total se calcula con sus comisiones pendientes.</small></div>
             <div class="card-body">
                 <form action="/vendedores/pagos" method="POST" class="row g-3 align-items-end">
                     <div class="col-12 col-md-3">
                         <label class="form-label">Vendedor</label>
-                        <select name="vendedor_id" class="form-select" required>
-                            {% for v in vendedores %}<option value="{{ v[0] }}">{{ v[1] }}</option>{% endfor %}
+                        <select id="pago-vendedor" name="vendedor_id" class="form-select" required>
+                            {% for v in vendedores %}<option value="{{ v[0] }}" {% if v[0] == vendedor_pago_seleccionado %}selected{% endif %}>{{ v[1] }}</option>{% endfor %}
                         </select>
                     </div>
                     <div class="col-12 col-md-3">
@@ -202,14 +205,44 @@
                         <input type="date" name="fecha" class="form-control" value="{{ fecha_hoy }}" required>
                     </div>
                     <div class="col-12 col-md-3">
-                        <label class="form-label">Monto pagado (GTQ)</label>
-                        <input type="number" name="monto" min="0" step="0.01" class="form-control" required>
+                        <label class="form-label">Administrador que realiza el pago</label>
+                        <select name="admin_user_id" class="form-select" required>
+                            {% for admin in administradores %}<option value="{{ admin[0] }}" {% if admin[0] == usuario["id"] %}selected{% endif %}>{{ admin[1] }}</option>{% endfor %}
+                        </select>
                     </div>
-                    <div class="col-12 col-md-2">
+                    <div class="col-12">
+                        <div class="row g-2 align-items-end mb-2">
+                            <div class="col-12 col-md-4">
+                                <label for="pago-filtro-fecha" class="form-label">Filtrar ventas por fecha (opcional)</label>
+                                <input id="pago-filtro-fecha" type="date" class="form-control"
+                                       value="{{ pago_fecha_ventas.isoformat() if pago_fecha_ventas else '' }}">
+                            </div>
+                            <div class="col-12 col-md-3">
+                                <button id="aplicar-filtros-pago" class="btn btn-outline-primary w-100" type="button">
+                                    Aplicar filtro
+                                </button>
+                            </div>
+                        </div>
+                        <label class="form-label">Ventas que se están pagando</label>
+                        <div id="pago-ventas" class="border rounded p-2" aria-live="polite">
+                            {% for venta in ventas_pendientes_pago %}
+                            <label class="d-flex align-items-center gap-2 p-2 border-bottom">
+                                <input class="form-check-input m-0 pago-venta-checkbox"
+                                       type="checkbox" name="venta_ids" value="{{ venta[0] }}"
+                                       data-comision="{{ venta[7] }}">
+                                <span>Venta #{{ venta[0] }} · {{ venta[1] }} · {{ venta[2] }} {{ venta[3] }} · Talla {{ venta[4] or "-" }} · Número {{ venta[5] }} · {{ venta[6] or "Sin color" }} · Comisión GTQ{{ "%.2f"|format(venta[7]) }}</span>
+                            </label>
+                            {% else %}
+                            <p class="text-muted mb-0">Este vendedor no tiene ventas pendientes de pago.</p>
+                            {% endfor %}
+                        </div>
+                        <div class="text-end mt-2 fw-bold">Total seleccionado: GTQ<span id="pago-total">0.00</span></div>
+                    </div>
+                    <div class="col-12 col-md-3">
                         <label class="form-label">Notas (opcional)</label>
                         <input type="text" name="notas" maxlength="200" class="form-control">
                     </div>
-                    <div class="col-12 col-md-1"><button class="btn btn-success w-100" type="submit">Guardar</button></div>
+                    <div class="col-12 col-md-3"><button class="btn btn-success w-100" type="submit">Registrar pago</button></div>
                 </form>
             </div>
         </div>{% endif %}
@@ -218,17 +251,31 @@
             <div class="card-header bg-white"><h5 class="mb-0">{% if es_admin %}Reporte diario de vendedores{% else %}Mi reporte de comisiones{% endif %}</h5></div>
             <div class="table-responsive">
                 <table class="table table-hover mb-0">
-                    <thead class="table-light"><tr><th>Fecha</th>{% if es_admin %}<th>Vendedor</th>{% endif %}<th>Ventas</th><th>Comisión (GTQ)</th><th>Pagado (GTQ)</th><th>Pendiente (GTQ)</th></tr></thead>
+                    <thead class="table-light">
+                        <tr>
+                            <th>Fecha de venta</th>
+                            {% if es_admin %}<th>Vendedor</th>{% endif %}
+                            <th>Ventas</th><th>Comisión total (GTQ)</th>
+                            <th>Pago realizado (GTQ)</th><th>Pagado acumulado (GTQ)</th>
+                            <th>Pendiente (GTQ)</th><th>Fecha de pago</th>
+                            <th>Administrador</th>
+                        </tr>
+                    </thead>
                     <tbody>
                         {% for r in reporte_vendedores %}
-                        <tr>
-                            <td>{{ r[2] }}</td>{% if es_admin %}<td>{{ r[1] }}</td>{% endif %}<td>{{ r[3] }}</td>
-                            <td>GTQ{{ "%.2f"|format(r[4]) }}</td>
-                            <td>GTQ{{ "%.2f"|format(r[5]) }}</td>
-                            <td>GTQ{{ "%.2f"|format(r[4] - r[5]) }}</td>
+                        <tr class="{% if r[10] == 'resumen' %}table-light fw-semibold{% elif r[10] == 'historico' %}table-secondary{% else %}table-info{% endif %}">
+                            <td>{{ r[2] or "-" }}</td>
+                            {% if es_admin %}<td>{{ r[1] }}</td>{% endif %}
+                            <td>{{ r[3] if r[3] is not none else "-" }}</td>
+                            <td>{% if r[4] is not none %}GTQ{{ "%.2f"|format(r[4]) }}{% else %}-{% endif %}</td>
+                            <td>{% if r[5] is not none %}GTQ{{ "%.2f"|format(r[5]) }}{% else %}-{% endif %}</td>
+                            <td>GTQ{{ "%.2f"|format(r[6]) }}</td>
+                            <td>{% if r[7] is not none %}GTQ{{ "%.2f"|format(r[7]) }}{% else %}-{% endif %}</td>
+                            <td>{{ "Resumen" if r[10] == "resumen" else (r[8] or "-") }}</td>
+                            <td>{{ r[9] or "-" }}</td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="{{ 6 if es_admin else 5 }}" class="text-center text-muted py-3">No hay comisiones o pagos para este período.</td></tr>
+                        <tr><td colspan="{{ 9 if es_admin else 8 }}" class="text-center text-muted py-3">No hay comisiones o pagos para este período.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -236,22 +283,71 @@
         </div>
 
         <div class="card shadow-sm mb-4">
-            <div class="card-header bg-white"><h5 class="mb-0">Historial de Ventas</h5></div>
+            <div class="card-header bg-white">
+                <h5 class="mb-3">Historial de Ventas</h5>
+                <form id="filtros-historial-ventas" method="GET" action="/" class="row g-2 align-items-end">
+                    <input type="hidden" name="fecha" value="{{ filtro_fecha }}">
+                    <input type="hidden" name="mes" value="{{ filtro_mes }}">
+                    <input type="hidden" name="semana" value="{{ filtro_semana }}">
+                    <input type="hidden" name="todos" value="{{ 'true' if filtro_todos else 'false' }}">
+                    <input type="hidden" name="pago_vendedor_id" value="{{ vendedor_pago_seleccionado or '' }}">
+                    <input type="hidden" name="pago_fecha_venta" value="{{ pago_fecha_ventas.isoformat() if pago_fecha_ventas else '' }}">
+                    {% if vendedor_seleccionado %}
+                    <input type="hidden" name="vendedor_id" value="{{ vendedor_seleccionado }}">
+                    {% endif %}
+                    {% if es_admin %}
+                    <div class="col-12 col-md-4">
+                        <label for="historial_vendedor_id" class="form-label">Vendedor</label>
+                        <select id="historial_vendedor_id" name="historial_vendedor_id" class="form-select">
+                            <option value="">Todos</option>
+                            {% for v in vendedores %}
+                            <option value="{{ v[0] }}" {% if historial_vendedor_seleccionado == v[0] %}selected{% endif %}>{{ v[1] }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                    <div class="col-12 col-md-4">
+                        <label for="estado_pago" class="form-label">Estado de pago</label>
+                        <select id="estado_pago" name="estado_pago" class="form-select">
+                            <option value="">Todos</option>
+                            <option value="pagado" {% if estado_pago_seleccionado == "pagado" %}selected{% endif %}>Pagado</option>
+                            <option value="parcial" {% if estado_pago_seleccionado == "parcial" %}selected{% endif %}>Pago parcial</option>
+                            <option value="pendiente" {% if estado_pago_seleccionado == "pendiente" %}selected{% endif %}>Pendiente</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-4 d-flex gap-2">
+                        <button class="btn btn-primary" type="submit">Filtrar historial</button>
+                        <a class="btn btn-outline-secondary" href="/">Limpiar</a>
+                    </div>
+                </form>
+            </div>
             <div class="table-responsive">
                 <table class="table table-hover mb-0">
                     <thead class="table-light">
-                        <tr><th>Fecha</th>{% if es_admin %}<th>Vendedor(es)</th>{% endif %}<th>Código</th><th>Talla</th><th>Color</th>{% if es_admin %}<th>Costo Base</th>{% endif %}<th>Precio Venta</th><th>Comisión total</th>{% if es_admin %}<th>Utilidad Neta</th>{% endif %}<th>Acciones</th></tr>
+                        <tr><th>Fecha</th>{% if es_admin %}<th>Vendedor(es)</th>{% endif %}<th>Código</th><th>Talla</th><th>Color</th>{% if es_admin %}<th>Costo Base</th>{% endif %}<th>Precio Venta</th><th>Comisión total</th><th>Estado de pago</th>{% if es_admin %}<th>Utilidad Neta</th>{% endif %}<th>Acciones</th></tr>
                     </thead>
                     <tbody>
                         {% for v in ventas %}
-                        <tr>
-                            <td>{{ v.fecha }}</td>{% if es_admin %}<td>{{ v.vendedor }}</td>{% endif %}
+                        <tr class="{% if v.estado_pago == 'pagado' %}table-success venta-pagada{% elif v.estado_pago == 'parcial' %}table-warning venta-pago-parcial{% endif %}">
+                            <td>{{ v.fecha }}</td>
+                            {% if es_admin %}
+                            <td>
+                                {% for vendedor in v.vendedores %}
+                                {% if vendedor.pagado %}<strong>{{ vendedor.nombre }}</strong>{% else %}{{ vendedor.nombre }}{% endif %}{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </td>
+                            {% endif %}
                             <td>{{ v.codigo }}</td>
                             <td><span class="badge bg-secondary">{{ v.talla }}</span></td>
                             <td>{{ v.color or "-" }}</td>
                             {% if es_admin %}<td>GTQ{{ "%.2f"|format(v.base) }}</td>{% endif %}
                             <td class="text-primary fw-bold">GTQ{{ "%.2f"|format(v.vendido) }}</td>
                             <td class="text-danger">GTQ{{ "%.2f"|format(v.comision) }}</td>
+                            <td>
+                                <span class="badge {% if v.estado_pago == 'pagado' %}bg-success{% elif v.estado_pago == 'parcial' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                    {% if v.estado_pago == "pagado" %}Pagado{% elif v.estado_pago == "parcial" %}Pago parcial{% else %}Pendiente{% endif %}
+                                </span>
+                            </td>
                             {% if es_admin %}
                             <td class="text-success fw-bold">GTQ{{ "%.2f"|format(v.utilidad) }}</td>
                             {% endif %}
@@ -274,7 +370,7 @@
                             </td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="{{ 10 if es_admin else 7 }}" class="text-center text-muted py-4">No hay ventas para este período.</td></tr>
+                        <tr><td colspan="{{ 11 if es_admin else 8 }}" class="text-center text-muted py-4">No hay ventas para este período.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -282,9 +378,15 @@
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="/static/action-feedback.js"></script>
     <script>
         const tipoPeriodo = document.getElementById("tipo_periodo");
         const filtroTodos = document.getElementById("filtro-todos");
+        const filtrosReporte = document.getElementById("filtros-reporte");
+        const filtroPagoVendedor = document.getElementById("pago-vendedor-filtro");
+        const filtroPagoFecha = document.getElementById("pago-fecha-filtro");
+        const filtroAplicado = document.getElementById("filtro-aplicado");
         const camposPeriodo = {
             fecha: document.getElementById("fecha"),
             mes: document.getElementById("mes"),
@@ -300,16 +402,94 @@
                 contenedoresPeriodo[tipo].classList.toggle("d-none", tipoPeriodo.value !== tipo);
             }
         }
-        tipoPeriodo.addEventListener("change", mostrarCampoPeriodo);
-        document.getElementById("filtros-reporte").addEventListener("submit", function () {
+        tipoPeriodo.addEventListener("change", function () {
+            mostrarCampoPeriodo();
+            if (tipoPeriodo.value !== "fecha") {
+                document.getElementById("pago-filtro-fecha").value = "";
+            }
+        });
+        camposPeriodo.fecha.addEventListener("change", function () {
+            document.getElementById("pago-filtro-fecha").value = this.value;
+        });
+        filtrosReporte.addEventListener("submit", function () {
             filtroTodos.value = tipoPeriodo.value ? "false" : "true";
+            filtroPagoVendedor.value = document.getElementById("pago-vendedor").value;
+            filtroPagoFecha.value = document.getElementById("pago-filtro-fecha").value;
             for (const tipo of Object.keys(camposPeriodo)) {
                 if (tipo !== tipoPeriodo.value) camposPeriodo[tipo].disabled = true;
             }
             const vendedor = document.getElementById("vendedor_id");
             if (vendedor && !vendedor.value) vendedor.disabled = true;
         });
+        const filtrosHistorialVentas = document.getElementById("filtros-historial-ventas");
+        const vendedorHistorial = document.getElementById("historial_vendedor_id");
+        if (filtrosHistorialVentas && vendedorHistorial) {
+            filtrosHistorialVentas.addEventListener("submit", function () {
+                if (!vendedorHistorial.value) vendedorHistorial.disabled = true;
+            });
+        }
         mostrarCampoPeriodo();
+        if (document.body.dataset.reportUpdated === "true") {
+            Swal.fire({
+                icon: "success",
+                title: "Reporte actualizado",
+                text: "Los datos se actualizaron con los filtros seleccionados.",
+                timer: 1600,
+                showConfirmButton: false
+            });
+        }
+
+        const pagoVendedor = document.getElementById("pago-vendedor");
+        const pagoVentas = document.getElementById("pago-ventas");
+        const pagoTotal = document.getElementById("pago-total");
+        const pagoFiltroFecha = document.getElementById("pago-filtro-fecha");
+        const aplicarFiltrosPago = document.getElementById("aplicar-filtros-pago");
+        if (pagoVendedor && pagoVentas && pagoTotal && pagoFiltroFecha && aplicarFiltrosPago) {
+            function actualizarTotalPago() {
+                const total = Array.from(
+                    pagoVentas.querySelectorAll(".pago-venta-checkbox:checked")
+                ).reduce((suma, checkbox) => suma + Number(checkbox.dataset.comision), 0);
+                pagoTotal.textContent = total.toFixed(2);
+            }
+            pagoVentas.addEventListener("change", actualizarTotalPago);
+            document.querySelector('form[action="/vendedores/pagos"]').addEventListener(
+                "submit", function (event) {
+                    if (!pagoVentas.querySelector(".pago-venta-checkbox:checked")) {
+                        event.preventDefault();
+                        alert("Seleccione al menos una venta pendiente.");
+                    }
+                }
+            );
+            pagoFiltroFecha.addEventListener("change", function () {
+                if (this.value) {
+                    tipoPeriodo.value = "fecha";
+                    camposPeriodo.fecha.value = this.value;
+                    mostrarCampoPeriodo();
+                }
+            });
+            aplicarFiltrosPago.addEventListener("click", function () {
+                if (window.Swal) {
+                    Swal.fire({
+                        title: "Aplicando filtro...",
+                        text: "Actualizando el reporte completo.",
+                        allowOutsideClick: false,
+                        allowEscapeKey: false,
+                        didOpen: () => Swal.showLoading()
+                    });
+                }
+                tipoPeriodo.value = pagoFiltroFecha.value
+                    ? "fecha"
+                    : tipoPeriodo.value;
+                if (pagoFiltroFecha.value) {
+                    camposPeriodo.fecha.value = pagoFiltroFecha.value;
+                }
+                filtroPagoVendedor.value = pagoVendedor.value;
+                filtroPagoFecha.value = pagoFiltroFecha.value;
+                filtroAplicado.value = "true";
+                setTimeout(() => filtrosReporte.requestSubmit(), 100);
+            });
+            actualizarTotalPago();
+        }
     </script>
 </body>
 </html>
