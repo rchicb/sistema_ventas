@@ -132,61 +132,75 @@
                 <small class="text-muted">Los gastos se descuentan de la utilidad del período, también cuando se filtra por vendedor.</small>
             </div>
             <div class="card-body">
-                <form action="/gastos/registrar" method="POST" class="row g-3 align-items-end">
-                    <div class="col-12 col-md-2">
-                        <label class="form-label">Fecha</label>
-                        <input type="date" name="fecha" class="form-control" value="{{ fecha_hoy }}" required>
+                <form action="/gastos/registrar" method="POST">
+                    <div id="gastos-container" class="vstack gap-3">
+                        <div class="gasto-row row g-3 align-items-end">
+                            <div class="col-12 col-md-2">
+                                <label class="form-label" data-label="fecha">Fecha</label>
+                                <input type="date" name="fecha" data-field="fecha" class="form-control" value="{{ fecha_hoy }}" required>
+                            </div>
+                            <div class="col-12 col-md-3">
+                                <label class="form-label" data-label="categoria">Categoría</label>
+                                <select name="categoria" data-field="categoria" class="form-select" required>
+                                    {% for categoria in categorias_gastos %}<option value="{{ categoria }}">{{ categoria }}</option>{% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-12 col-md-3">
+                                <label class="form-label" data-label="descripcion">Descripción (opcional)</label>
+                                <input type="text" name="descripcion" data-field="descripcion" maxlength="200" class="form-control">
+                            </div>
+                            <div class="col-12 col-md-2">
+                                <label class="form-label" data-label="monto">Monto (GTQ)</label>
+                                <input type="number" name="monto" data-field="monto" min="0" step="0.01" class="form-control" required>
+                            </div>
+                            <div class="col-12 col-md-2">
+                                <button class="btn btn-outline-danger w-100 eliminar-gasto" type="button">Quitar</button>
+                            </div>
+                        </div>
                     </div>
-                    <div class="col-12 col-md-3">
-                        <label class="form-label">Categoría</label>
-                        <select name="categoria" class="form-select" required>
-                            {% for categoria in categorias_gastos %}<option value="{{ categoria }}">{{ categoria }}</option>{% endfor %}
-                        </select>
+                    <div class="d-flex flex-column flex-sm-row gap-2 mt-3">
+                        <button id="agregar-gasto" class="btn btn-outline-primary" type="button">Agregar otro gasto</button>
+                        <button class="btn btn-danger" type="submit">Guardar gastos</button>
                     </div>
-                    <div class="col-12 col-md-3">
-                        <label class="form-label">Descripción (opcional)</label>
-                        <input type="text" name="descripcion" maxlength="200" class="form-control">
-                    </div>
-                    <div class="col-12 col-md-2">
-                        <label class="form-label">Monto (GTQ)</label>
-                        <input type="number" name="monto" min="0" step="0.01" class="form-control" required>
-                    </div>
-                    <div class="col-12 col-md-2"><button class="btn btn-danger w-100" type="submit">Guardar gasto</button></div>
                 </form>
             </div>
         </div>
 
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-white"><h5 class="mb-0">Gastos registrados (editables)</h5></div>
-            <div class="table-responsive">
-                <table class="table table-hover align-middle mb-0">
-                    <thead class="table-light"><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Monto (GTQ)</th><th></th></tr></thead>
-                    <tbody>
-                        {% for g in gastos %}
-                        <tr>
-                            <td><input form="editar-gasto-{{ g[0] }}" type="date" name="fecha" class="form-control form-control-sm" value="{{ g[1] }}" required></td>
-                            <td>
-                                <select form="editar-gasto-{{ g[0] }}" name="categoria" class="form-select form-select-sm" required>
-                                    {% for categoria in categorias_gastos %}
-                                    <option value="{{ categoria }}" {% if categoria == g[2] %}selected{% endif %}>{{ categoria }}</option>
-                                    {% endfor %}
-                                </select>
-                            </td>
-                            <td><input form="editar-gasto-{{ g[0] }}" type="text" name="descripcion" maxlength="200" class="form-control form-control-sm" value="{{ g[3] or '' }}"></td>
-                            <td><input form="editar-gasto-{{ g[0] }}" type="number" name="monto" min="0" step="0.01" class="form-control form-control-sm" value="{{ g[4] }}" required></td>
-                            <td>
-                                <form id="editar-gasto-{{ g[0] }}" action="/gastos/modificar" method="POST">
+            <form action="/gastos/modificar" method="POST">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light"><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th>Monto (GTQ)</th></tr></thead>
+                        <tbody>
+                            {% for g in gastos %}
+                            <tr>
+                                <td>
                                     <input type="hidden" name="gasto_id" value="{{ g[0] }}">
-                                    <button class="btn btn-sm btn-outline-primary" type="submit">Guardar cambios</button>
-                                </form>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="5" class="text-center text-muted py-3">No hay gastos para este período.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+                                    <input type="date" name="fecha" class="form-control form-control-sm" value="{{ g[1] }}" required>
+                                </td>
+                                <td>
+                                    <select name="categoria" class="form-select form-select-sm" required>
+                                        {% for categoria in categorias_gastos %}
+                                        <option value="{{ categoria }}" {% if categoria == g[2] %}selected{% endif %}>{{ categoria }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </td>
+                                <td><input type="text" name="descripcion" maxlength="200" class="form-control form-control-sm" value="{{ g[3] or '' }}"></td>
+                                <td><input type="number" name="monto" min="0" step="0.01" class="form-control form-control-sm" value="{{ g[4] }}" required></td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="4" class="text-center text-muted py-3">No hay gastos para este período.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if gastos %}
+                <div class="p-3">
+                    <button class="btn btn-outline-primary" type="submit">Guardar todos los cambios</button>
+                </div>
+                {% endif %}
+            </form>
         </div>
         {% endif %}
 
@@ -381,6 +395,48 @@
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="/static/action-feedback.js"></script>
     <script>
+        const gastosContainer = document.getElementById("gastos-container");
+        if (gastosContainer) {
+            const filaGastoBase = gastosContainer.querySelector(".gasto-row");
+            let numeroFilaGasto = 0;
+
+            function asignarIdsFilaGasto(fila) {
+                const sufijo = ++numeroFilaGasto;
+                fila.querySelectorAll("[data-field]").forEach(campo => {
+                    campo.id = `gasto-${sufijo}-${campo.dataset.field}`;
+                    fila.querySelector(`[data-label="${campo.dataset.field}"]`).htmlFor = campo.id;
+                });
+            }
+
+            function actualizarBotonesQuitarGasto() {
+                const filas = gastosContainer.querySelectorAll(".gasto-row");
+                filas.forEach(fila => {
+                    fila.querySelector(".eliminar-gasto").disabled = filas.length === 1;
+                });
+            }
+
+            asignarIdsFilaGasto(filaGastoBase);
+            actualizarBotonesQuitarGasto();
+
+            document.getElementById("agregar-gasto").addEventListener("click", function () {
+                const nuevaFila = filaGastoBase.cloneNode(true);
+                nuevaFila.querySelector('[name="fecha"]').value = filaGastoBase.querySelector('[name="fecha"]').value;
+                nuevaFila.querySelector('[name="categoria"]').selectedIndex = 0;
+                nuevaFila.querySelector('[name="descripcion"]').value = "";
+                nuevaFila.querySelector('[name="monto"]').value = "";
+                asignarIdsFilaGasto(nuevaFila);
+                gastosContainer.append(nuevaFila);
+                actualizarBotonesQuitarGasto();
+            });
+
+            gastosContainer.addEventListener("click", function (event) {
+                const botonQuitar = event.target.closest(".eliminar-gasto");
+                if (!botonQuitar || gastosContainer.querySelectorAll(".gasto-row").length === 1) return;
+                botonQuitar.closest(".gasto-row").remove();
+                actualizarBotonesQuitarGasto();
+            });
+        }
+
         const tipoPeriodo = document.getElementById("tipo_periodo");
         const filtroTodos = document.getElementById("filtro-todos");
         const filtrosReporte = document.getElementById("filtros-reporte");
