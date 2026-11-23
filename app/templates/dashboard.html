@@ -40,7 +40,7 @@
                             <option value="" {% if filtro_todos %}selected{% endif %}>Todo</option>
                             <option value="fecha" {% if filtro_fecha %}selected{% endif %}>Día</option>
                             <option value="mes" {% if filtro_mes %}selected{% endif %}>Mes</option>
-                            <option value="semana" {% if filtro_semana %}selected{% endif %}>Semana</option>
+                            <option value="rango" {% if filtro_fecha_inicio or filtro_fecha_fin %}selected{% endif %}>Rango de fechas</option>
                         </select>
                     </div>
                     <input type="hidden" id="filtro-todos" name="todos" value="{{ 'true' if filtro_todos else 'false' }}">
@@ -55,9 +55,13 @@
                         <label for="mes" class="form-label">Mes</label>
                         <input type="month" id="mes" name="mes" class="form-control" value="{{ filtro_mes }}">
                     </div>
-                    <div class="col-12 col-md-3" id="filtro-semana">
-                        <label for="semana" class="form-label">Semana</label>
-                        <input type="week" id="semana" name="semana" class="form-control" value="{{ filtro_semana }}">
+                    <div class="col-12 col-md-3" id="filtro-rango">
+                        <label for="fecha_inicio" class="form-label">Fecha inicial</label>
+                        <input type="date" id="fecha_inicio" name="fecha_inicio" class="form-control" value="{{ filtro_fecha_inicio }}">
+                    </div>
+                    <div class="col-12 col-md-3" id="filtro-rango-fin">
+                        <label for="fecha_fin" class="form-label">Fecha final</label>
+                        <input type="date" id="fecha_fin" name="fecha_fin" class="form-control" value="{{ filtro_fecha_fin }}">
                     </div>
                     {% if es_admin %}<div class="col-12 col-md-3">
                         <label for="vendedor_id" class="form-label">Vendedor</label>
@@ -302,7 +306,8 @@
                 <form id="filtros-historial-ventas" method="GET" action="/" class="row g-2 align-items-end">
                     <input type="hidden" name="fecha" value="{{ filtro_fecha }}">
                     <input type="hidden" name="mes" value="{{ filtro_mes }}">
-                    <input type="hidden" name="semana" value="{{ filtro_semana }}">
+                    <input type="hidden" name="fecha_inicio" value="{{ filtro_fecha_inicio }}">
+                    <input type="hidden" name="fecha_fin" value="{{ filtro_fecha_fin }}">
                     <input type="hidden" name="todos" value="{{ 'true' if filtro_todos else 'false' }}">
                     <input type="hidden" name="pago_vendedor_id" value="{{ vendedor_pago_seleccionado or '' }}">
                     <input type="hidden" name="pago_fecha_venta" value="{{ pago_fecha_ventas.isoformat() if pago_fecha_ventas else '' }}">
@@ -369,12 +374,13 @@
                                 <div class="d-flex flex-column flex-md-row gap-2">
                                     <a class="btn btn-sm btn-outline-secondary" href="/ventas?duplicar_id={{ v.id }}">Duplicar</a>
                                     {% if es_admin %}
-                                    <a class="btn btn-sm btn-outline-primary" href="/ventas/{{ v.id }}/editar?fecha={{ filtro_fecha }}&mes={{ filtro_mes }}&semana={{ filtro_semana }}{% if filtro_todos %}&todos=true{% endif %}{% if vendedor_seleccionado %}&vendedor_id={{ vendedor_seleccionado }}{% endif %}">Modificar</a>
+                                    <a class="btn btn-sm btn-outline-primary" href="/ventas/{{ v.id }}/editar?fecha={{ filtro_fecha }}&mes={{ filtro_mes }}&fecha_inicio={{ filtro_fecha_inicio }}&fecha_fin={{ filtro_fecha_fin }}{% if filtro_todos %}&todos=true{% endif %}{% if vendedor_seleccionado %}&vendedor_id={{ vendedor_seleccionado }}{% endif %}">Modificar</a>
                                     <form action="/ventas/{{ v.id }}/eliminar" method="POST"
                                           onsubmit="return confirm('¿Eliminar esta venta y sus comisiones? Esta acción no se puede deshacer.');">
                                         <input type="hidden" name="reporte_fecha" value="{{ filtro_fecha }}">
                                         <input type="hidden" name="reporte_mes" value="{{ filtro_mes }}">
-                                        <input type="hidden" name="reporte_semana" value="{{ filtro_semana }}">
+                                        <input type="hidden" name="reporte_fecha_inicio" value="{{ filtro_fecha_inicio }}">
+                                        <input type="hidden" name="reporte_fecha_fin" value="{{ filtro_fecha_fin }}">
                                         <input type="hidden" name="reporte_todos" value="{{ 'true' if filtro_todos else 'false' }}">
                                         {% if vendedor_seleccionado %}<input type="hidden" name="reporte_vendedor_id" value="{{ vendedor_seleccionado }}">{% endif %}
                                         <button class="btn btn-sm btn-outline-danger w-100" type="submit">Eliminar</button>
@@ -444,18 +450,30 @@
         const filtroPagoFecha = document.getElementById("pago-fecha-filtro");
         const filtroAplicado = document.getElementById("filtro-aplicado");
         const camposPeriodo = {
-            fecha: document.getElementById("fecha"),
-            mes: document.getElementById("mes"),
-            semana: document.getElementById("semana")
+            fecha: [document.getElementById("fecha")],
+            mes: [document.getElementById("mes")],
+            rango: [
+                document.getElementById("fecha_inicio"),
+                document.getElementById("fecha_fin")
+            ]
         };
         const contenedoresPeriodo = {
-            fecha: document.getElementById("filtro-dia"),
-            mes: document.getElementById("filtro-mes"),
-            semana: document.getElementById("filtro-semana")
+            fecha: [document.getElementById("filtro-dia")],
+            mes: [document.getElementById("filtro-mes")],
+            rango: [
+                document.getElementById("filtro-rango"),
+                document.getElementById("filtro-rango-fin")
+            ]
         };
         function mostrarCampoPeriodo() {
             for (const tipo of Object.keys(camposPeriodo)) {
-                contenedoresPeriodo[tipo].classList.toggle("d-none", tipoPeriodo.value !== tipo);
+                const mostrar = tipoPeriodo.value === tipo;
+                contenedoresPeriodo[tipo].forEach(contenedor => {
+                    contenedor.classList.toggle("d-none", !mostrar);
+                });
+                camposPeriodo[tipo].forEach(campo => {
+                    campo.required = mostrar;
+                });
             }
         }
         tipoPeriodo.addEventListener("change", function () {
@@ -464,7 +482,7 @@
                 document.getElementById("pago-filtro-fecha").value = "";
             }
         });
-        camposPeriodo.fecha.addEventListener("change", function () {
+        camposPeriodo.fecha[0].addEventListener("change", function () {
             document.getElementById("pago-filtro-fecha").value = this.value;
         });
         filtrosReporte.addEventListener("submit", function () {
@@ -472,7 +490,9 @@
             filtroPagoVendedor.value = document.getElementById("pago-vendedor").value;
             filtroPagoFecha.value = document.getElementById("pago-filtro-fecha").value;
             for (const tipo of Object.keys(camposPeriodo)) {
-                if (tipo !== tipoPeriodo.value) camposPeriodo[tipo].disabled = true;
+                for (const campo of camposPeriodo[tipo]) {
+                    if (tipo !== tipoPeriodo.value) campo.disabled = true;
+                }
             }
             const vendedor = document.getElementById("vendedor_id");
             if (vendedor && !vendedor.value) vendedor.disabled = true;
@@ -519,7 +539,7 @@
             pagoFiltroFecha.addEventListener("change", function () {
                 if (this.value) {
                     tipoPeriodo.value = "fecha";
-                    camposPeriodo.fecha.value = this.value;
+                    camposPeriodo.fecha[0].value = this.value;
                     mostrarCampoPeriodo();
                 }
             });
@@ -537,7 +557,7 @@
                     ? "fecha"
                     : tipoPeriodo.value;
                 if (pagoFiltroFecha.value) {
-                    camposPeriodo.fecha.value = pagoFiltroFecha.value;
+                    camposPeriodo.fecha[0].value = pagoFiltroFecha.value;
                 }
                 filtroPagoVendedor.value = pagoVendedor.value;
                 filtroPagoFecha.value = pagoFiltroFecha.value;

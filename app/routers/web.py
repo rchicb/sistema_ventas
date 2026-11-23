@@ -56,13 +56,21 @@ def obtener_ventas_del_dia(venta_repo, fecha, vendedor_id=None):
         for venta in ventas
     ]
 
-def url_reporte_ventas(fecha=None, mes=None, semana=None, vendedor_id=None, todos=False):
+def url_reporte_ventas(
+    fecha=None,
+    mes=None,
+    fecha_inicio=None,
+    fecha_fin=None,
+    vendedor_id=None,
+    todos=False,
+):
     filtros = {
         nombre: valor
         for nombre, valor in (
             ("fecha", fecha),
             ("mes", mes),
-            ("semana", semana),
+            ("fecha_inicio", fecha_inicio),
+            ("fecha_fin", fecha_fin),
             ("vendedor_id", vendedor_id),
             ("todos", "true" if todos else None),
         )
@@ -75,19 +83,20 @@ def dashboard(
     request: Request,
     fecha: str = None,
     mes: str = None,
-    semana: str = None,
+    fecha_inicio: str = None,
+    fecha_fin: str = None,
     todos: bool = False,
     vendedor_id: int = None,
     historial_vendedor_id: int = None,
     estado_pago: str = "",
     pago_vendedor_id: int = None,
-    pago_fecha_venta: date = None,
+    pago_fecha_venta: str = "",
     filtro_aplicado: bool = False,
     venta_repo: VentaRepository = Depends(get_venta_repo),
     base_repo: BaseRepository = Depends(get_base_repo),
     usuario=Depends(usuario_actual),
 ):
-    if fecha or mes or semana:
+    if fecha or mes or fecha_inicio or fecha_fin:
         todos = False
     elif not todos:
         fecha = fecha_actual_guatemala().isoformat()
@@ -105,18 +114,24 @@ def dashboard(
         vendedor_id = usuario["seller_id"]
         historial_vendedor_id = None
 
-    filtros_periodo = [value for value in (fecha, mes, semana) if value]
-    if len(filtros_periodo) > 1:
+    if bool(fecha_inicio) != bool(fecha_fin):
         raise HTTPException(
             status_code=400,
-            detail="Seleccione solo un filtro de período: fecha, mes o semana.",
+            detail="Seleccione una fecha inicial y una fecha final para el rango.",
+        )
+    cantidad_periodos = sum(
+        (bool(fecha), bool(mes), bool(fecha_inicio and fecha_fin))
+    )
+    if cantidad_periodos > 1:
+        raise HTTPException(
+            status_code=400, detail="Seleccione solo un filtro: día, mes o rango."
         )
 
-    fecha_inicio = fecha_fin = None
+    inicio_periodo = fin_periodo = None
     try:
         if fecha:
-            fecha_inicio = date.fromisoformat(fecha)
-            fecha_fin = fecha_inicio + timedelta(days=1)
+            inicio_periodo = date.fromisoformat(fecha)
+            fin_periodo = inicio_periodo + timedelta(days=1)
         elif mes:
             primer_dia = date.fromisoformat(f"{mes}-01")
             siguiente_mes = (
@@ -124,18 +139,23 @@ def dashboard(
                 if primer_dia.month == 12
                 else date(primer_dia.year, primer_dia.month + 1, 1)
             )
-            fecha_inicio, fecha_fin = primer_dia, siguiente_mes
-        elif semana:
-            anio, numero_semana = semana.split("-W", 1)
-            fecha_inicio = date.fromisocalendar(int(anio), int(numero_semana), 1)
-            fecha_fin = fecha_inicio + timedelta(days=7)
-    except (ValueError, TypeError):
+            inicio_periodo, fin_periodo = primer_dia, siguiente_mes
+        elif fecha_inicio and fecha_fin:
+            inicio_periodo = date.fromisoformat(fecha_inicio)
+            fecha_final = date.fromisoformat(fecha_fin)
+            if inicio_periodo > fecha_final:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La fecha inicial no puede ser posterior a la fecha final.",
+                )
+            fin_periodo = fecha_final + timedelta(days=1)
+    except (ValueError, TypeError, OverflowError):
         raise HTTPException(
-            status_code=400, detail="El filtro de fecha, mes o semana no es válido."
+            status_code=400, detail="El filtro de fecha, mes o rango no es válido."
         )
 
     raw_ventas = venta_repo.obtener_reporte_ganancias(
-        fecha_inicio, fecha_fin, vendedor_id
+        inicio_periodo, fin_periodo, vendedor_id
     ) or []
     
     ventas_procesadas = []
@@ -177,8 +197,8 @@ def dashboard(
 
     if historial_vendedor_id is not None or estado_pago:
         historial_raw_ventas = venta_repo.obtener_reporte_ganancias(
-            fecha_inicio,
-            fecha_fin,
+            inicio_periodo,
+            fin_periodo,
             vendedor_id,
             historial_vendedor_id,
             estado_pago or None,
@@ -190,7 +210,7 @@ def dashboard(
         ]
 
     if es_admin:
-        gastos = venta_repo.obtener_gastos(fecha_inicio, fecha_fin) or []
+        gastos = venta_repo.obtener_gastos(inicio_periodo, fin_periodo) or []
         total_gastos = sum(float(gasto[4]) for gasto in gastos)
         total_utilidad = round(utilidad_antes_gastos - total_gastos, 2)
         vendedores = base_repo.execute_query(
@@ -221,17 +241,25 @@ def dashboard(
         if pago_vendedor_id is not None
         else (vendedores[0][0] if vendedores else None)
     )
-    fecha_ventas_pago = pago_fecha_venta or (
+    try:
+        fecha_filtro_pago = (
+            date.fromisoformat(pago_fecha_venta) if pago_fecha_venta else None
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail="La fecha del filtro de pagos no es válida."
+        )
+    fecha_ventas_pago = fecha_filtro_pago or (
         date.fromisoformat(fecha) if fecha else None
     )
     ventas_pendientes_pago = (
         venta_repo.obtener_ventas_pendientes_pago(
-            vendedor_pago_seleccionado, fecha_inicio, fecha_fin
+            vendedor_pago_seleccionado, inicio_periodo, fin_periodo
         ) or []
         if es_admin and vendedor_pago_seleccionado is not None else []
     )
     reporte_vendedores = venta_repo.obtener_reporte_vendedores(
-        fecha_inicio, fecha_fin, vendedor_id
+        inicio_periodo, fin_periodo, vendedor_id
     ) or []
 
     # SOLUCIÓN INGENIERIL: Forzamos el contexto directamente a través del motor Jinja2 subyacente
@@ -250,7 +278,8 @@ def dashboard(
         vendedores=vendedores,
         filtro_fecha=fecha or "",
         filtro_mes=mes or "",
-        filtro_semana=semana or "",
+        filtro_fecha_inicio=fecha_inicio or "",
+        filtro_fecha_fin=fecha_fin or "",
         filtro_todos=todos,
         vendedor_seleccionado=vendedor_id,
         historial_vendedor_seleccionado=historial_vendedor_id,
@@ -652,7 +681,8 @@ def mostrar_editar_venta(
     request: Request,
     fecha: str = "",
     mes: str = "",
-    semana: str = "",
+    fecha_inicio: str = "",
+    fecha_fin: str = "",
     todos: bool = False,
     vendedor_id: int = None,
     venta_repo: VentaRepository = Depends(get_venta_repo),
@@ -761,11 +791,14 @@ def mostrar_editar_venta(
             ),
             None,
         ),
-        url_retorno=url_reporte_ventas(fecha, mes, semana, vendedor_id, todos),
+        url_retorno=url_reporte_ventas(
+            fecha, mes, fecha_inicio, fecha_fin, vendedor_id, todos
+        ),
         filtros_reporte={
             "fecha": fecha,
             "mes": mes,
-            "semana": semana,
+            "fecha_inicio": fecha_inicio,
+            "fecha_fin": fecha_fin,
             "todos": todos,
             "vendedor_id": vendedor_id or "",
         },
@@ -846,7 +879,8 @@ def modificar_venta(
     color_id: int = Form(None, ge=1),
     reporte_fecha: str = Form(""),
     reporte_mes: str = Form(""),
-    reporte_semana: str = Form(""),
+    reporte_fecha_inicio: str = Form(""),
+    reporte_fecha_fin: str = Form(""),
     reporte_todos: bool = Form(False),
     reporte_vendedor_id: int = Form(None, ge=1),
     venta_repo: VentaRepository = Depends(get_venta_repo),
@@ -881,7 +915,7 @@ def modificar_venta(
         raise HTTPException(status_code=400, detail=str(error))
     return RedirectResponse(
         url=url_reporte_ventas(
-            reporte_fecha, reporte_mes, reporte_semana,
+            reporte_fecha, reporte_mes, reporte_fecha_inicio, reporte_fecha_fin,
             reporte_vendedor_id, reporte_todos,
         ),
         status_code=303,
@@ -892,7 +926,8 @@ def eliminar_venta(
     venta_id: int,
     reporte_fecha: str = Form(""),
     reporte_mes: str = Form(""),
-    reporte_semana: str = Form(""),
+    reporte_fecha_inicio: str = Form(""),
+    reporte_fecha_fin: str = Form(""),
     reporte_todos: bool = Form(False),
     reporte_vendedor_id: int = Form(None, ge=1),
     venta_repo: VentaRepository = Depends(get_venta_repo),
@@ -905,7 +940,7 @@ def eliminar_venta(
         raise HTTPException(status_code=409, detail=str(error))
     return RedirectResponse(
         url=url_reporte_ventas(
-            reporte_fecha, reporte_mes, reporte_semana,
+            reporte_fecha, reporte_mes, reporte_fecha_inicio, reporte_fecha_fin,
             reporte_vendedor_id, reporte_todos,
         ),
         status_code=303,
