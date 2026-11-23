@@ -38,7 +38,8 @@
                 <form action="/ventas/{{ venta[0] }}/modificar" method="POST">
                     <input type="hidden" name="reporte_fecha" value="{{ filtros_reporte.fecha }}">
                     <input type="hidden" name="reporte_mes" value="{{ filtros_reporte.mes }}">
-                    <input type="hidden" name="reporte_semana" value="{{ filtros_reporte.semana }}">
+                    <input type="hidden" name="reporte_fecha_inicio" value="{{ filtros_reporte.fecha_inicio }}">
+                    <input type="hidden" name="reporte_fecha_fin" value="{{ filtros_reporte.fecha_fin }}">
                     <input type="hidden" name="reporte_todos" value="{{ 'true' if filtros_reporte.todos else 'false' }}">
                     {% if filtros_reporte.vendedor_id %}
                     <input type="hidden" name="reporte_vendedor_id" value="{{ filtros_reporte.vendedor_id }}">
