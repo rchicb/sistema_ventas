@@ -379,28 +379,64 @@ class VentaRepository(BaseRepository):
         """
         return self.execute_query(query, tuple(params), fetch=True)
 
-    def registrar_gasto(self, fecha, categoria, descripcion, monto):
+    def registrar_gastos(self, gastos):
+        fechas, categorias, descripciones, montos = zip(*gastos)
         self.execute_query(
             """
-            INSERT INTO daily_expenses (expense_date, category, description, amount)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO daily_expenses (
+                expense_date, category, description, amount
+            )
+            SELECT gasto.expense_date, gasto.category, gasto.description, gasto.amount
+            FROM unnest(
+                %s::date[], %s::text[], %s::text[], %s::numeric[]
+            ) AS gasto(expense_date, category, description, amount)
             """,
-            (fecha, categoria, descripcion or None, monto)
+            (
+                list(fechas),
+                list(categorias),
+                [descripcion or None for descripcion in descripciones],
+                list(montos),
+            ),
         )
 
-    def actualizar_gasto(self, gasto_id, fecha, categoria, descripcion, monto):
-        result = self.execute_query(
-            """
-            UPDATE daily_expenses
-            SET expense_date = %s, category = %s, description = %s, amount = %s
-            WHERE id = %s
-            RETURNING id
-            """,
-            (fecha, categoria, descripcion or None, monto, gasto_id),
-            fetch=True
-        )
-        if not result:
-            raise ValueError("No se encontró el gasto que se intentó modificar.")
+    def actualizar_gastos(self, gastos):
+        if not gastos:
+            raise ValueError("Debe seleccionar al menos un gasto.")
+        gasto_ids, fechas, categorias, descripciones, montos = zip(*gastos)
+        if len(set(gasto_ids)) != len(gasto_ids):
+            raise ValueError("No se pueden repetir los identificadores de gasto.")
+        conn = db_pool.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE daily_expenses AS gasto
+                    SET expense_date = cambios.fecha,
+                        category = cambios.categoria,
+                        description = cambios.descripcion,
+                        amount = cambios.monto
+                    FROM unnest(
+                        %s::int[], %s::date[], %s::text[], %s::text[], %s::numeric[]
+                    ) AS cambios(gasto_id, fecha, categoria, descripcion, monto)
+                    WHERE gasto.id = cambios.gasto_id
+                    RETURNING gasto.id
+                    """,
+                    (
+                        list(gasto_ids),
+                        list(fechas),
+                        list(categorias),
+                        [descripcion or None for descripcion in descripciones],
+                        list(montos),
+                    ),
+                )
+                if len(cursor.fetchall()) != len(gasto_ids):
+                    raise ValueError("Uno o más gastos ya no existen.")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            db_pool.put_connection(conn)
 
     def obtener_ventas_pendientes_pago(
         self, vendedor_id, fecha_inicio=None, fecha_fin=None

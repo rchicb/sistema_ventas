@@ -913,32 +913,58 @@ def eliminar_venta(
 
 @router.post("/gastos/registrar")
 def registrar_gasto(
-    fecha: date = Form(...),
-    categoria: str = Form(...),
-    monto: float = Form(..., ge=0),
-    descripcion: str = Form(""),
+    fecha: list[date] = Form(...),
+    categoria: list[str] = Form(...),
+    monto: list[float] = Form(...),
+    descripcion: list[str] = Form(...),
     venta_repo: VentaRepository = Depends(get_venta_repo),
     usuario=Depends(administrador_actual),
 ):
-    if categoria not in GASTOS_CATEGORIAS:
+    cantidad_gastos = len(fecha)
+    if not cantidad_gastos or any(
+        len(valores) != cantidad_gastos
+        for valores in (categoria, monto, descripcion)
+    ):
+        raise HTTPException(
+            status_code=400, detail="Los datos de los gastos no están completos."
+        )
+    if any(item not in GASTOS_CATEGORIAS for item in categoria):
         raise HTTPException(status_code=400, detail="La categoría de gasto no es válida.")
-    venta_repo.registrar_gasto(fecha, categoria, descripcion, monto)
+    if any(not math.isfinite(item) or item < 0 for item in monto):
+        raise HTTPException(status_code=400, detail="El monto de gasto no es válido.")
+    venta_repo.registrar_gastos(list(zip(fecha, categoria, descripcion, monto)))
     return RedirectResponse(url="/", status_code=303)
 
 @router.post("/gastos/modificar")
-def modificar_gasto(
-    gasto_id: int = Form(..., ge=1),
-    fecha: date = Form(...),
-    categoria: str = Form(...),
-    monto: float = Form(..., ge=0),
-    descripcion: str = Form(""),
+def modificar_gastos(
+    gasto_id: list[int] = Form(...),
+    fecha: list[date] = Form(...),
+    categoria: list[str] = Form(...),
+    monto: list[float] = Form(...),
+    descripcion: list[str] = Form(...),
     venta_repo: VentaRepository = Depends(get_venta_repo),
     usuario=Depends(administrador_actual),
 ):
-    if categoria not in GASTOS_CATEGORIAS:
+    cantidad_gastos = len(gasto_id)
+    if not cantidad_gastos or any(
+        len(valores) != cantidad_gastos
+        for valores in (fecha, categoria, monto, descripcion)
+    ):
+        raise HTTPException(
+            status_code=400, detail="Los datos de los gastos no están completos."
+        )
+    if any(item < 1 for item in gasto_id) or len(set(gasto_id)) != cantidad_gastos:
+        raise HTTPException(status_code=400, detail="Los identificadores de gasto no son válidos.")
+    if any(item not in GASTOS_CATEGORIAS for item in categoria):
         raise HTTPException(status_code=400, detail="La categoría de gasto no es válida.")
+    if any(not math.isfinite(item) or item < 0 for item in monto):
+        raise HTTPException(status_code=400, detail="El monto de gasto no es válido.")
+    if any(len(item) > 200 for item in descripcion):
+        raise HTTPException(status_code=400, detail="La descripción no puede superar 200 caracteres.")
     try:
-        venta_repo.actualizar_gasto(gasto_id, fecha, categoria, descripcion, monto)
+        venta_repo.actualizar_gastos(
+            list(zip(gasto_id, fecha, categoria, descripcion, monto))
+        )
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error))
     return RedirectResponse(url="/", status_code=303)
