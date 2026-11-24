@@ -1,0 +1,41 @@
+name: Merge Feature -> Dev -> Master
+
+on:
+  push:
+    branches:
+      - 'feature/reportes_sistema_ventas'
+
+permissions:
+  contents: write
+
+jobs:
+  promote-branches:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio completo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configurar identidad de Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@://github.com"
+
+      - name: Mergear feature hacia dev y luego hacia master
+        run: |
+          # Guardar el nombre de la rama que disparó el push
+          SOURCE_BRANCH=${GITHUB_REF_NAME}
+
+          # 1. Pasar cambios a develop
+          git fetch origin develop
+          git checkout develop
+          git merge "origin/${SOURCE_BRANCH}" --no-edit
+          git push origin develop
+
+          # 2. Pasar cambios de develop a master
+          git fetch origin master
+          git checkout master
+          git merge develop --no-edit
+          git push origin master
+
