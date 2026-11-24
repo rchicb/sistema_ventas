@@ -154,7 +154,7 @@ def init_db():
             branch_id INT REFERENCES branches(id),
             product_id INT NOT NULL REFERENCES products(id),
             color_id INT REFERENCES colors(id),
-            number_sold INT NOT NULL DEFAULT 0,
+            number_sold NUMERIC(10, 2) NOT NULL DEFAULT 0,
             historical_base_price NUMERIC(10, 2) NOT NULL,
             sale_price NUMERIC(10, 2) NOT NULL,
             commission INT NOT NULL,
@@ -172,7 +172,12 @@ def init_db():
         """,
         """
         ALTER TABLE sales
-        ADD COLUMN IF NOT EXISTS number_sold INT NOT NULL DEFAULT 0
+        ADD COLUMN IF NOT EXISTS number_sold NUMERIC(10, 2) NOT NULL DEFAULT 0
+        """,
+        """
+        ALTER TABLE sales
+        ALTER COLUMN number_sold TYPE NUMERIC(10, 2)
+        USING number_sold::NUMERIC(10, 2)
         """,
         """
         ALTER TABLE sales
