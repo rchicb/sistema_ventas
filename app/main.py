@@ -6,7 +6,7 @@ from app.core.database import db_pool, init_db
 from app.core.config import settings
 from app.repositories.usuario import UsuarioRepository
 from app.routers import auth, web
-from app.services.auth import hash_password
+from app.services.passwords import hash_password
 
 app = FastAPI(title="Sistema Relacional de Ventas - SOLID")
 
