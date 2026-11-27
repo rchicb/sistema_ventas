@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Sistema de Ventas{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-light" {% block body_attributes %}{% endblock %}>
+    {% if usuario is defined and usuario %}
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">Distribuidora CHB</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#menuPrincipal" aria-controls="menuPrincipal"
+                    aria-expanded="false" aria-label="Mostrar menú">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="menuPrincipal">
+                <div class="navbar-nav me-auto flex-column flex-lg-row">
+                    <a class="nav-link{% if active_page == 'dashboard' %} active{% endif %}"
+                       {% if active_page == 'dashboard' %}aria-current="page"{% endif %} href="/">Dashboard</a>
+                    <a class="nav-link{% if active_page == 'ventas' %} active{% endif %}"
+                       {% if active_page == 'ventas' %}aria-current="page"{% endif %} href="/ventas">Registrar ventas</a>
+                    {% if es_admin %}
+                    <a class="nav-link{% if active_page == 'formularios' %} active{% endif %}"
+                       {% if active_page == 'formularios' %}aria-current="page"{% endif %} href="/formularios">Administración y Catálogos</a>
+                    {% endif %}
+                </div>
+                <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center gap-2 gap-lg-3 text-white">
+                    <span>{{ usuario["username"] }} · {{ "Administrador" if es_admin else "Vendedor" }}</span>
+                    <form action="/logout" method="POST"><button class="btn btn-outline-light btn-sm" type="submit">Cerrar sesión</button></form>
+                </div>
+            </div>
+        </div>
+    </nav>
+    {% endif %}
+    {% block content %}{% endblock %}
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="/static/action-feedback.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
