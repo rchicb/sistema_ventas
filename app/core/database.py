@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import time
 import psycopg2
 from psycopg2 import pool
@@ -10,7 +11,7 @@ class DatabaseConnectionPool:
     def initialize(self):
         for i in range(5):
             try:
-                self._pool = psycopg2.pool.SimpleConnectionPool(
+                self._pool = psycopg2.pool.ThreadedConnectionPool(
                     1,
                     10,
                     dsn=settings.DATABASE_URL,
@@ -31,6 +32,18 @@ class DatabaseConnectionPool:
     def put_connection(self, conn):
         if self._pool and conn:
             self._pool.putconn(conn)
+
+    @contextmanager
+    def transaction(self):
+        conn = self.get_connection()
+        try:
+            yield conn
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            self.put_connection(conn)
 
     def close_all(self):
         if self._pool:

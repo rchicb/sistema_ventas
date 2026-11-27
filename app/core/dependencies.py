@@ -1,16 +1,31 @@
 from fastapi import Depends, HTTPException, Request
 
+from app.repositories.base import CatalogRepository
+from app.repositories.contracts import (
+    CatalogRepositoryPort,
+    SalesRepositoryPort,
+    UserRepositoryPort,
+)
 from app.repositories.usuario import UsuarioRepository
-from app.services.auth import SESSION_COOKIE, read_session_user_id
+from app.repositories.venta import VentaRepository
+from app.services.sessions import SESSION_COOKIE, read_session_user_id
 
 
-def get_usuario_repo():
+def get_catalog_repo() -> CatalogRepositoryPort:
+    return CatalogRepository()
+
+
+def get_venta_repo() -> SalesRepositoryPort:
+    return VentaRepository()
+
+
+def get_usuario_repo() -> UserRepositoryPort:
     return UsuarioRepository()
 
 
 def usuario_actual(
     request: Request,
-    usuario_repo: UsuarioRepository = Depends(get_usuario_repo),
+    usuario_repo: UserRepositoryPort = Depends(get_usuario_repo),
 ):
     token = request.cookies.get(SESSION_COOKIE)
     user_id = read_session_user_id(token) if token else None

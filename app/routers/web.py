@@ -6,17 +6,21 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Request, Form, Depends, HTTPException
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from app.repositories.venta import VentaRepository
-from app.repositories.base import BaseRepository
-from app.repositories.usuario import UsuarioRepository
+from app.services.reporting import procesar_reporte_ventas, ventas_del_dia
+from app.repositories.contracts import (
+    CatalogRepositoryPort,
+    SalesRepositoryPort,
+    UserRepositoryPort,
+)
 from app.core.time import fecha_actual_guatemala
 from app.core.dependencies import (
     administrador_actual,
+    get_catalog_repo,
+    get_venta_repo,
     get_usuario_repo,
     usuario_actual,
 )
-from app.services.auth import hash_password
-from app.services.pricing import PricingService
+from app.services.passwords import hash_password
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -27,34 +31,6 @@ GASTOS_CATEGORIAS = (
 COMISIONES_PERMITIDAS = frozenset(
     Decimal(monto) for monto in ("0", "2", "3", "5", "10", "15", "20")
 )
-
-def get_venta_repo(): return VentaRepository()
-def get_base_repo(): return BaseRepository()
-
-def obtener_ventas_del_dia(venta_repo, fecha, vendedor_id=None):
-    inicio = date.fromisoformat(fecha)
-    ventas = venta_repo.obtener_reporte_ganancias(
-        inicio, inicio + timedelta(days=1), vendedor_id
-    ) or []
-    return [
-        {
-            "id": venta[0],
-            "vendedor": venta[1],
-            "vendedores": [
-                {"nombre": nombre, "pagado": nombre in (venta[11] or [])}
-                for nombre in (venta[12] or [])
-            ],
-            "empresa": venta[2],
-            "codigo": venta[3],
-            "numero": venta[4],
-            "color": venta[5],
-            "base": venta[6],
-            "vendido": venta[7],
-            "comision": venta[8],
-            "estado_pago": venta[10],
-        }
-        for venta in ventas
-    ]
 
 def url_reporte_ventas(
     fecha=None,
@@ -92,8 +68,8 @@ def dashboard(
     pago_vendedor_id: int = None,
     pago_fecha_venta: str = "",
     filtro_aplicado: bool = False,
-    venta_repo: VentaRepository = Depends(get_venta_repo),
-    base_repo: BaseRepository = Depends(get_base_repo),
+    venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(usuario_actual),
 ):
     if fecha or mes or fecha_inicio or fecha_fin:
@@ -158,42 +134,12 @@ def dashboard(
         inicio_periodo, fin_periodo, vendedor_id
     ) or []
     
-    ventas_procesadas = []
-    total_bruto = 0.0
-    total_comisiones = 0.0
-    utilidad_antes_gastos = 0.0
-    
-    for item in raw_ventas:
-        (
-            v_id, v_nombre, p_empresa, p_codigo, p_talla, p_color, p_base, p_vendido,
-            porc_comision, fecha_venta, estado_venta, vendedores_pagados,
-            vendedores_asignados
-        ) = item
-        
-        p_base = float(p_base)
-        p_vendido = float(p_vendido)
-        porc_comision = float(porc_comision)
-        
-        comision = PricingService.calcular_ganancia_vendedor(porc_comision)
-        utilidad = PricingService.calcular_utilidad_empresa(p_vendido, p_base, comision)
-        
-        total_bruto += p_vendido
-        total_comisiones += comision
-        utilidad_antes_gastos += utilidad
-        
-        ventas_procesadas.append({
-            "id": v_id,
-            "vendedor": v_nombre,
-            "vendedores": [
-                {"nombre": nombre, "pagado": nombre in (vendedores_pagados or [])}
-                for nombre in (vendedores_asignados or [])
-            ],
-            "empresa": p_empresa, "codigo": p_codigo,
-            "talla": p_talla, "color": p_color, "base": p_base,
-            "vendido": p_vendido, "comision": comision,
-            "utilidad": utilidad, "fecha": fecha_venta,
-            "estado_pago": estado_venta,
-        })
+    (
+        ventas_procesadas,
+        total_bruto,
+        total_comisiones,
+        utilidad_antes_gastos,
+    ) = procesar_reporte_ventas(raw_ventas)
 
     if historial_vendedor_id is not None or estado_pago:
         historial_raw_ventas = venta_repo.obtener_reporte_ganancias(
@@ -302,7 +248,8 @@ def mostrar_formularios(
     codigo_filtro: str = "",
     busqueda_filtro: str = "",
     duplicado_id: int = None,
-    base_repo: BaseRepository = Depends(get_base_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
+    usuario_repo: UserRepositoryPort = Depends(get_usuario_repo),
     usuario=Depends(administrador_actual),
 ):
     marca_filtro = marca_filtro.strip()
@@ -413,8 +360,8 @@ def mostrar_formularios(
         """,
         fetch=True,
     ) or []
-    usuarios = UsuarioRepository().listar_usuarios() or []
-    vendedores_disponibles = UsuarioRepository().listar_vendedores() or []
+    usuarios = usuario_repo.listar_usuarios() or []
+    vendedores_disponibles = usuario_repo.listar_vendedores() or []
 
     # Usamos .render() directo para saltarnos el middleware conflictivo de Starlette
     html_content = templates.env.get_template("formularios.html").render(
@@ -444,8 +391,8 @@ def mostrar_ventas(
     request: Request,
     fecha: str = "",
     duplicar_id: int = None,
-    venta_repo: VentaRepository = Depends(get_venta_repo),
-    base_repo: BaseRepository = Depends(get_base_repo),
+    venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(usuario_actual),
 ):
     es_admin = usuario["role"] == "admin"
@@ -608,7 +555,7 @@ def mostrar_ventas(
                 {"id": color_actual[0][0], "name": color_actual[0][1]}
             )
     vendedor_historial_id = None if es_admin else usuario["seller_id"]
-    historial_ventas = obtener_ventas_del_dia(
+    historial_ventas = ventas_del_dia(
         venta_repo, fecha_consulta.isoformat(), vendedor_historial_id
     )
     html_content = templates.env.get_template("ventas.html").render(
@@ -630,7 +577,7 @@ def mostrar_ventas(
 @router.get("/ventas/historial")
 def mostrar_historial_ventas_dia(
     fecha: str,
-    venta_repo: VentaRepository = Depends(get_venta_repo),
+    venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
     usuario=Depends(usuario_actual),
 ):
     try:
@@ -638,7 +585,7 @@ def mostrar_historial_ventas_dia(
     except ValueError:
         raise HTTPException(status_code=400, detail="La fecha del historial no es válida.")
     vendedor_id = None if usuario["role"] == "admin" else usuario["seller_id"]
-    historial_ventas = obtener_ventas_del_dia(
+    historial_ventas = ventas_del_dia(
         venta_repo, fecha_consulta.isoformat(), vendedor_id
     )
     return HTMLResponse(
@@ -652,7 +599,7 @@ def mostrar_historial_ventas_dia(
 def listar_ventas_pendientes_pago(
     vendedor_id: int,
     fecha: date = None,
-    venta_repo: VentaRepository = Depends(get_venta_repo),
+    venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
     usuario=Depends(administrador_actual),
 ):
     fecha_fin = fecha + timedelta(days=1) if fecha else None
@@ -685,8 +632,8 @@ def mostrar_editar_venta(
     fecha_fin: str = "",
     todos: bool = False,
     vendedor_id: int = None,
-    venta_repo: VentaRepository = Depends(get_venta_repo),
-    base_repo: BaseRepository = Depends(get_base_repo),
+    venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(administrador_actual),
 ):
     if venta_repo.execute_query(
@@ -818,7 +765,7 @@ def registrar_venta(
     fecha: date = Form(...),
     color_id: int = Form(None, ge=1),
     vendedor_id: int = Form(None, ge=1),
-    venta_repo: VentaRepository = Depends(get_venta_repo),
+    venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
     usuario=Depends(usuario_actual),
 ):
     if usuario["role"] == "vendedor":
@@ -883,7 +830,7 @@ def modificar_venta(
     reporte_fecha_fin: str = Form(""),
     reporte_todos: bool = Form(False),
     reporte_vendedor_id: int = Form(None, ge=1),
-    venta_repo: VentaRepository = Depends(get_venta_repo),
+    venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
     usuario=Depends(administrador_actual),
 ):
     if (
@@ -930,7 +877,7 @@ def eliminar_venta(
     reporte_fecha_fin: str = Form(""),
     reporte_todos: bool = Form(False),
     reporte_vendedor_id: int = Form(None, ge=1),
-    venta_repo: VentaRepository = Depends(get_venta_repo),
+    venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
     usuario=Depends(administrador_actual),
 ):
     try:
@@ -952,7 +899,7 @@ def registrar_gasto(
     categoria: list[str] = Form(...),
     monto: list[float] = Form(...),
     descripcion: list[str] = Form(...),
-    venta_repo: VentaRepository = Depends(get_venta_repo),
+    venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
     usuario=Depends(administrador_actual),
 ):
     cantidad_gastos = len(fecha)
@@ -977,7 +924,7 @@ def modificar_gastos(
     categoria: list[str] = Form(...),
     monto: list[float] = Form(...),
     descripcion: list[str] = Form(...),
-    venta_repo: VentaRepository = Depends(get_venta_repo),
+    venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
     usuario=Depends(administrador_actual),
 ):
     cantidad_gastos = len(gasto_id)
@@ -1011,7 +958,7 @@ def registrar_pago_vendedor(
     admin_user_id: int = Form(...),
     venta_ids: list[int] = Form(...),
     notas: str = Form(""),
-    venta_repo: VentaRepository = Depends(get_venta_repo),
+    venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
     usuario=Depends(administrador_actual),
 ):
     try:
@@ -1027,7 +974,7 @@ def agregar_vendedor(
     code: int = Form(..., ge=1),
     nombre: str = Form(...),
     estado_id: int = Form(...),
-    base_repo: BaseRepository = Depends(get_base_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(administrador_actual),
 ):
     if estado_id not in (1, 2):
@@ -1050,7 +997,7 @@ def agregar_producto(
     empresa_id: int = Form(None),
     nueva_empresa: str = Form(""),
     color_ids: list[int] = Form([]),
-    base_repo: BaseRepository = Depends(get_base_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(administrador_actual),
 ):
     if estado_id not in (1, 2):
@@ -1134,7 +1081,7 @@ def agregar_producto(
 @router.post("/colores/agregar")
 def agregar_color(
     nombre: str = Form(..., min_length=1, max_length=100),
-    base_repo: BaseRepository = Depends(get_base_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(administrador_actual),
 ):
     nombre = nombre.strip()
@@ -1156,7 +1103,7 @@ def agregar_color(
 def modificar_color(
     color_id: int = Form(..., ge=1),
     nombre: str = Form(..., min_length=1, max_length=100),
-    base_repo: BaseRepository = Depends(get_base_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(administrador_actual),
 ):
     nombre = nombre.strip()
@@ -1185,7 +1132,7 @@ def asignar_colores_producto(
     precio_base: str = Form(""),
     precio_descuento: str = Form(""),
     precio_sugerido: str = Form(""),
-    base_repo: BaseRepository = Depends(get_base_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(administrador_actual),
 ):
     color_ids = sorted(set(color_ids))
@@ -1258,7 +1205,7 @@ def modificar_producto(
     precio_descuento: str = Form(""),
     precio_sugerido: str = Form(""),
     estado_id: int = Form(...),
-    base_repo: BaseRepository = Depends(get_base_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(administrador_actual),
 ):
     if estado_id not in (1, 2):
@@ -1460,7 +1407,7 @@ def eliminar_producto_catalogo(
     marca_filtro: str = Form(""),
     codigo_filtro: str = Form(""),
     busqueda_filtro: str = Form(""),
-    base_repo: BaseRepository = Depends(get_base_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(administrador_actual),
 ):
     try:
@@ -1490,7 +1437,7 @@ def agregar_talla(
     letra: str = Form(...),
     rango: str = Form(...),
     estado_id: int = Form(...),
-    base_repo: BaseRepository = Depends(get_base_repo),
+    base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(administrador_actual),
 ):
     try:
@@ -1515,7 +1462,7 @@ def agregar_usuario(
     role: str = Form(...),
     seller_id: int = Form(None),
     estado_id: int = Form(...),
-    usuario_repo: UsuarioRepository = Depends(get_usuario_repo),
+    usuario_repo: UserRepositoryPort = Depends(get_usuario_repo),
     usuario=Depends(administrador_actual),
 ):
     if len(username.strip()) < 3:
@@ -1552,7 +1499,7 @@ def administrar_usuarios(usuario=Depends(administrador_actual)):
 def actualizar_estado_usuario(
     usuario_id: int = Form(..., ge=1),
     estado_id: int = Form(...),
-    usuario_repo: UsuarioRepository = Depends(get_usuario_repo),
+    usuario_repo: UserRepositoryPort = Depends(get_usuario_repo),
     usuario=Depends(administrador_actual),
 ):
     if estado_id not in (1, 2):

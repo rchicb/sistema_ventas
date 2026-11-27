@@ -51,8 +51,7 @@ class VentaRepository(BaseRepository):
                 AND (%s = 0 OR %s BETWEEN size.start_number AND size.end_number)
             RETURNING id
         """
-        conn = db_pool.get_connection()
-        try:
+        with db_pool.transaction() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     query,
@@ -93,12 +92,6 @@ class VentaRepository(BaseRepository):
                         raise ValueError(
                             "El segundo vendedor no existe o está inactivo."
                         )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            db_pool.put_connection(conn)
 
     def obtener_reporte_ganancias(
         self,

@@ -15,6 +15,8 @@ class BaseRepository:
             db_pool.put_connection(conn)
         return result
 
+
+class CatalogRepository(BaseRepository):
     def guardar_producto_duplicado(
         self,
         company_id: int,
