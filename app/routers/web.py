@@ -473,6 +473,7 @@ def mostrar_ventas(
                 comisiones_por_vendedor.get(vendedor_secundario_id, 0)
                 if vendedor_secundario_id is not None else 0
             ),
+            "product_description": venta[11] or "",
             "fecha": fecha_venta.isoformat(),
         }
 
@@ -509,7 +510,9 @@ def mostrar_ventas(
         SELECT bp.id, c.name, p.code,
                ' [' || s.start_number || ' - ' || s.end_number || ' ]',
                bp.cost_without_discount, bp.cost_with_discount,
-               bp.sale_price_suggested, p.id, p.description
+               bp.sale_price_suggested, p.id, p.description,
+               LOWER(BTRIM(c.name)) = 'rebajado'
+                   AND LOWER(BTRIM(p.code)) = 'rebajado'
         FROM products p
         JOIN companies c ON c.id = p.company_id
         JOIN base_price bp ON bp.product_id = p.id
@@ -679,7 +682,10 @@ def mostrar_editar_venta(
     productos = base_repo.execute_query(
         """
         SELECT bp.id, p.id, c.name, p.code, bp.size_label, p.description,
-               bp.cost_without_discount, s.start_number, s.end_number,s.start_number || ' - ' || s.end_number AS size_range
+               bp.cost_without_discount, s.start_number, s.end_number,
+               s.start_number || ' - ' || s.end_number AS size_range,
+               LOWER(BTRIM(c.name)) = 'rebajado'
+                   AND LOWER(BTRIM(p.code)) = 'rebajado'
         FROM base_price bp
         JOIN products p ON p.id = bp.product_id
         JOIN companies c ON c.id = p.company_id
@@ -765,6 +771,7 @@ def registrar_venta(
     fecha: date = Form(...),
     color_id: int = Form(None, ge=1),
     vendedor_id: int = Form(None, ge=1),
+    product_description: str = Form("", max_length=200),
     venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
     usuario=Depends(usuario_actual),
 ):
@@ -802,6 +809,7 @@ def registrar_venta(
             fecha,
             segundo_vendedor_id,
             comision_segundo_vendedor,
+            product_description.strip() or None,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
@@ -824,6 +832,7 @@ def modificar_venta(
     comision_segundo_vendedor: Decimal = Form(Decimal("0"), ge=0),
     fecha: date = Form(...),
     color_id: int = Form(None, ge=1),
+    product_description: str = Form("", max_length=200),
     reporte_fecha: str = Form(""),
     reporte_mes: str = Form(""),
     reporte_fecha_inicio: str = Form(""),
@@ -856,7 +865,7 @@ def modificar_venta(
             venta_id, vendedor_id, sucursal_id, base_price_id, color_id,
             numero_vendido, precio_base, precio_vendido,
             comision_vendedor, fecha, segundo_vendedor_id,
-            comision_segundo_vendedor,
+            comision_segundo_vendedor, product_description.strip() or None,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
