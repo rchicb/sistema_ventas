@@ -21,13 +21,17 @@ def ventas_del_dia(
                 for nombre in (venta[12] or [])
             ],
             "empresa": venta[2],
-            "codigo": venta[3],
             "numero": venta[4],
             "color": venta[5],
             "base": venta[6],
             "vendido": venta[7],
             "comision": venta[8],
             "estado_pago": venta[10],
+            "codigo": (
+                f"{venta[3]} - {venta[13]}"
+                if venta[13]
+                else venta[3]
+            ),
         }
         for venta in ventas
     ]
@@ -56,17 +60,29 @@ def procesar_reporte_ventas(
             estado_pago,
             vendedores_pagados,
             vendedores_asignados,
+            descripcion_producto,
+            excluir_de_utilidad,
         ) = item
 
         precio_base = float(precio_base)
         precio_vendido = float(precio_vendido)
         comision_asignada = float(comision_asignada)
         comision = PricingService.calcular_ganancia_vendedor(comision_asignada)
-        utilidad = PricingService.calcular_utilidad_empresa(
-            precio_vendido, precio_base, comision
+        excluir_de_utilidad = bool(excluir_de_utilidad)
+        precio_bruto = (
+            precio_vendido - comision
+            if excluir_de_utilidad
+            else precio_vendido
+        )
+        utilidad = (
+            0
+            if excluir_de_utilidad
+            else PricingService.calcular_utilidad_empresa(
+                precio_vendido, precio_base, comision
+            )
         )
 
-        total_bruto += precio_vendido
+        total_bruto += precio_bruto
         total_comisiones += comision
         utilidad_antes_gastos += utilidad
         ventas_procesadas.append(
@@ -81,7 +97,11 @@ def procesar_reporte_ventas(
                     for nombre in (vendedores_asignados or [])
                 ],
                 "empresa": empresa,
-                "codigo": codigo,
+                "codigo": (
+                    f"{codigo} - {descripcion_producto}"
+                    if descripcion_producto
+                    else codigo
+                ),
                 "talla": talla,
                 "color": color,
                 "base": precio_base,

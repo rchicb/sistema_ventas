@@ -346,7 +346,7 @@
                                 </span>
                             </td>
                             {% if es_admin %}
-                            <td class="text-success fw-bold">GTQ{{ "%.2f"|format(v.utilidad) }}</td>
+                            <td class="{% if v.utilidad < 0 %}text-danger{% else %}text-success{% endif %} fw-bold">GTQ{{ "%.2f"|format(v.utilidad) }}</td>
                             {% endif %}
                             <td>
                                 <div class="d-flex flex-column flex-md-row gap-2">
