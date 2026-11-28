@@ -391,6 +391,7 @@ def mostrar_ventas(
     request: Request,
     fecha: str = "",
     duplicar_id: int = None,
+    vendedor_id: int = None,
     venta_repo: SalesRepositoryPort = Depends(get_venta_repo),
     base_repo: CatalogRepositoryPort = Depends(get_catalog_repo),
     usuario=Depends(usuario_actual),
@@ -398,7 +399,12 @@ def mostrar_ventas(
     es_admin = usuario["role"] == "admin"
     if es_admin:
         vendedores = base_repo.execute_query(
-            "SELECT id, name, code FROM seller WHERE state_id = 1 ORDER BY name",
+            """
+            SELECT id, name, code
+            FROM seller
+            WHERE state_id = 1
+            ORDER BY code, name, id
+            """,
             fetch=True,
         ) or []
     else:
@@ -416,6 +422,10 @@ def mostrar_ventas(
         raise HTTPException(status_code=400, detail="La fecha de venta no es válida.")
 
     form_venta = {}
+    if vendedor_id is not None and any(
+        vendedor[0] == vendedor_id for vendedor in vendedores
+    ):
+        form_venta["vendedor_id"] = vendedor_id
     if duplicar_id is not None:
         venta = venta_repo.obtener_venta_para_editar(duplicar_id)
         if not venta:
@@ -478,10 +488,15 @@ def mostrar_ventas(
         }
 
     vendedores_comision = base_repo.execute_query(
-        "SELECT id, name, code FROM seller WHERE state_id = 1 ORDER BY name",
+        """
+        SELECT id, name, code
+        FROM seller
+        WHERE state_id = 1
+        ORDER BY code, name, id
+        """,
         fetch=True,
     ) or []
-    if form_venta and form_venta["segundo_vendedor_id"] is not None and not any(
+    if form_venta.get("segundo_vendedor_id") is not None and not any(
         vendedor[0] == form_venta["segundo_vendedor_id"]
         for vendedor in vendedores_comision
     ):
@@ -498,7 +513,7 @@ def mostrar_ventas(
         """,
         fetch=True,
     ) or []
-    if form_venta and not any(
+    if "sucursal_id" in form_venta and not any(
         sucursal[0] == form_venta["sucursal_id"] for sucursal in sucursales
     ):
         raise HTTPException(
@@ -523,7 +538,7 @@ def mostrar_ventas(
         """,
         fetch=True,
     ) or []
-    if form_venta and not any(
+    if "base_price_id" in form_venta and not any(
         producto[0] == form_venta["base_price_id"] for producto in productos
     ):
         raise HTTPException(
@@ -544,7 +559,7 @@ def mostrar_ventas(
         colores_por_producto.setdefault(product_id, []).append(
             {"id": color_id, "name": nombre_color}
         )
-    if form_venta and form_venta["color_id"] is not None and not any(
+    if form_venta.get("color_id") is not None and not any(
         color["id"] == form_venta["color_id"]
         for color in colores_por_producto.get(venta[3], [])
     ):
@@ -814,7 +829,9 @@ def registrar_venta(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
     return RedirectResponse(
-        url=f"/ventas?fecha={fecha.isoformat()}",
+        url="/ventas?" + urlencode(
+            {"fecha": fecha.isoformat(), "vendedor_id": vendedor_id}
+        ),
         status_code=303,
     )
 
