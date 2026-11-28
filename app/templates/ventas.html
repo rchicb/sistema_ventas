@@ -217,6 +217,8 @@
             });
             if (preservarColor && colores.some(color => String(color.id) === colorInicial)) {
                 colorSelect.value = colorInicial;
+            } else if (colores.length === 1) {
+                colorSelect.value = String(colores[0].id);
             }
             colorSelect.required = colores.length > 0;
             colorSelect.disabled = colores.length === 0;
