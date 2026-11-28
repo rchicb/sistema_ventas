@@ -172,8 +172,28 @@ def init_db():
             sale_price NUMERIC(10, 2) NOT NULL,
             commission INT NOT NULL,
             base_price_id INT REFERENCES base_price(id),
-            created_at DATE DEFAULT CURRENT_DATE
+            created_at DATE DEFAULT CURRENT_DATE,
+            product_description VARCHAR(200),
+            exclude_from_profit BOOLEAN NOT NULL DEFAULT FALSE
         )
+        """,
+        """
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS product_description VARCHAR(200)
+        """,
+        """
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS exclude_from_profit BOOLEAN NOT NULL DEFAULT FALSE
+        """,
+        """
+        UPDATE sales AS sale
+        SET exclude_from_profit = TRUE
+        FROM products p
+        JOIN companies c ON c.id = p.company_id
+        WHERE sale.product_id = p.id
+          AND LOWER(BTRIM(c.name)) = 'rebajado'
+          AND LOWER(BTRIM(p.code)) = 'rebajado'
+          AND sale.exclude_from_profit = FALSE
         """,
         """
         ALTER TABLE sales

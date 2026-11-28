@@ -75,6 +75,7 @@ class SalesRepositoryPort(QueryRepository, Protocol):
         fecha: date = None,
         segundo_vendedor_id: int = None,
         segunda_comision: Decimal = Decimal("0"),
+        product_description: str = None,
     ) -> None: ...
 
     def obtener_reporte_ganancias(
@@ -104,6 +105,7 @@ class SalesRepositoryPort(QueryRepository, Protocol):
         fecha: date,
         segundo_vendedor_id: int = None,
         segunda_comision: Decimal = Decimal("0"),
+        product_description: str = None,
     ) -> None: ...
 
     def eliminar_venta(self, venta_id: int) -> Any: ...

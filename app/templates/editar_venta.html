@@ -54,11 +54,18 @@
                                 <option value="{{ producto[0] }}"
                                         data-product-id="{{ producto[1] }}"
                                         data-base="{{ producto[6] }}"
+                                        data-special-sale="{{ 'true' if producto[10] else 'false' }}"
                                         {% if producto[0] == venta[9] %}selected{% endif %}>
                                     {{ producto[3] }} · [{{ producto[9] }}]{% if producto[5] %} · {{ producto[5] }}{% endif %}
                                 </option>
                                 {% endfor %}
                             </select>
+                        </div>
+                        <div id="producto_descripcion_wrap" class="col-12 d-none">
+                            <label for="product_description" class="form-label">Descripción opcional</label>
+                            <input id="product_description" name="product_description"
+                                   type="text" maxlength="200" class="form-control"
+                                   value="{{ venta[11] or '' }}" disabled>
                         </div>
                         <div class="col-12 col-md-6">
                             <label for="color_id" class="form-label">Color</label>
@@ -114,6 +121,8 @@
         const productoSelect = document.getElementById("base_price_id");
         const colorSelect = document.getElementById("color_id");
         const costoBase = document.getElementById("precio_base");
+        const descripcionProductoWrap = document.getElementById("producto_descripcion_wrap");
+        const descripcionProducto = document.getElementById("product_description");
         const colorActual = "{{ venta[4] or '' }}";
         const segundoVendedorSelect = document.getElementById("segundo_vendedor_id");
         const segundaComisionInput = document.getElementById("comision_segundo_vendedor");
@@ -148,12 +157,22 @@
             colorSelect.disabled = colores.length === 0;
         }
 
+        function actualizarDescripcionProducto() {
+            const option = productoSelect.options[productoSelect.selectedIndex];
+            const esProductoRebajado = option?.dataset.specialSale === "true";
+            descripcionProductoWrap.classList.toggle("d-none", !esProductoRebajado);
+            descripcionProducto.disabled = !esProductoRebajado;
+            if (!esProductoRebajado) descripcionProducto.value = "";
+        }
+
         productoSelect.addEventListener("change", function () {
             const option = this.options[this.selectedIndex];
             if (option) costoBase.value = Number(option.getAttribute("data-base")).toFixed(2);
             actualizarColores(false);
+            actualizarDescripcionProducto();
         });
 
         actualizarColores(true);
+        actualizarDescripcionProducto();
     </script>
 {% endblock %}

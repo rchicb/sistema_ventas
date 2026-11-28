@@ -16,15 +16,25 @@ class VentaRepository(BaseRepository):
         fecha=None,
         segundo_vendedor_id: int = None,
         segunda_comision: Decimal = Decimal("0"),
+        product_description: str = None,
     ):
         query = """
             INSERT INTO sales (
                 seller_id, branch_id, product_id, color_id, number_sold,
                 historical_base_price,
-                sale_price, commission, base_price_id, created_at
+                sale_price, commission, base_price_id, created_at,
+                product_description, exclude_from_profit
             )
             SELECT %s, branch.id, p.id, %s, %s, bp.cost_with_discount, %s, %s, bp.id,
-                   COALESCE(%s, CURRENT_DATE)
+                   COALESCE(%s, CURRENT_DATE),
+                   CASE
+                       WHEN LOWER(BTRIM(company.name)) = 'rebajado'
+                         AND LOWER(BTRIM(p.code)) = 'rebajado'
+                       THEN %s
+                       ELSE NULL
+                   END,
+                   LOWER(BTRIM(company.name)) = 'rebajado'
+                     AND LOWER(BTRIM(p.code)) = 'rebajado'
             FROM branches branch
             JOIN base_price bp ON bp.id = %s
             JOIN products p ON p.id = bp.product_id
@@ -58,6 +68,7 @@ class VentaRepository(BaseRepository):
                     (
                         vendedor_id, color_id, number_sold, precio_vendido,
                         comision_vendedor + segunda_comision, fecha,
+                        product_description,
                         base_price_id, vendedor_id, sucursal_id,
                         color_id, color_id, number_sold, number_sold,
                     ),
@@ -175,7 +186,9 @@ class VentaRepository(BaseRepository):
                     ELSE 'pendiente'
                 END,
                 COALESCE(sale_payment_status.paid_sellers, ARRAY[]::varchar[]),
-                COALESCE(commission_sellers.seller_names, ARRAY[seller.name])
+                COALESCE(commission_sellers.seller_names, ARRAY[seller.name]),
+                s.product_description,
+                s.exclude_from_profit
             FROM sales s
             JOIN seller ON s.seller_id = seller.id
             JOIN products p ON s.product_id = p.id
@@ -195,7 +208,8 @@ class VentaRepository(BaseRepository):
             """
             SELECT id, seller_id, branch_id, product_id, color_id, number_sold,
                    historical_base_price, sale_price, commission,
-                   base_price_id, created_at
+                   base_price_id, created_at, product_description,
+                   exclude_from_profit
             FROM sales
             WHERE id = %s
             """,
@@ -230,6 +244,7 @@ class VentaRepository(BaseRepository):
         fecha,
         segundo_vendedor_id: int = None,
         segunda_comision: Decimal = Decimal("0"),
+        product_description: str = None,
     ):
         query = """
             UPDATE sales AS sale
@@ -242,7 +257,16 @@ class VentaRepository(BaseRepository):
                 sale_price = %s,
                 commission = %s,
                 base_price_id = bp.id,
-                created_at = %s
+                created_at = %s,
+                product_description = CASE
+                    WHEN LOWER(BTRIM(company.name)) = 'rebajado'
+                      AND LOWER(BTRIM(p.code)) = 'rebajado'
+                    THEN %s
+                    ELSE NULL
+                END,
+                exclude_from_profit =
+                    LOWER(BTRIM(company.name)) = 'rebajado'
+                    AND LOWER(BTRIM(p.code)) = 'rebajado'
             FROM seller
             JOIN branches branch ON branch.id = %s
             JOIN base_price bp ON bp.id = %s
@@ -285,7 +309,7 @@ class VentaRepository(BaseRepository):
                     query,
                     (
                         color_id, numero_vendido, precio_base, precio_vendido,
-                        comision + segunda_comision, fecha,
+                        comision + segunda_comision, fecha, product_description,
                         sucursal_id, base_price_id, venta_id, vendedor_id,
                         color_id, color_id, color_id, numero_vendido,
                         numero_vendido,
